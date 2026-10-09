@@ -121,7 +121,7 @@ Item {
         // Блокирует клики по приложению под плеером
         MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; onWheel: wheel => wheel.accepted = true }
 
-        // Верхняя панель: свернуть + переключатель очередь/текст (над левой колонкой)
+        // Верхняя панель: свернуть + переключатель очередь/текст (над правой колонкой)
         RowLayout {
             id: topRow
             anchors.left: parent.left
@@ -130,13 +130,13 @@ Item {
             anchors.margins: 16
             spacing: 12
             IconButton { icon: "keyboard_arrow_down"; style: "tonal"; onClicked: root.hide() }
+            Item { Layout.fillWidth: true }
             ButtonGroup {
                 model: [{ icon: "title" }, { icon: "queue_music" }]
                 autoSelect: false
                 currentIndex: root.tab === "lyrics" ? 0 : 1
                 onActivated: i => root.tab = i === 0 ? "lyrics" : "queue"
             }
-            Item { Layout.fillWidth: true }
         }
 
         RowLayout {
@@ -147,12 +147,12 @@ Item {
             anchors.margins: 32
             anchors.topMargin: 8
             spacing: 48
-            layoutDirection: Qt.RightToLeft   // плеер справа, очередь/текст слева
 
-            // ---- Колонка плеера (справа): обложка и управление ----
+            // ---- Колонка плеера (слева, с отступом от края): обложка и управление ----
             ColumnLayout {
                 id: left
                 Layout.fillHeight: true
+                Layout.leftMargin: Math.max(16, root.width * 0.06)
                 Layout.preferredWidth: Math.min(460, root.width * 0.42)
                 Layout.maximumWidth: Layout.preferredWidth
                 spacing: 12
@@ -286,7 +286,7 @@ Item {
                 Item { Layout.fillHeight: true }
             }
 
-            // ---- Колонка очереди / текста (слева) ----
+            // ---- Колонка очереди / текста (справа) ----
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
