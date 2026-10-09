@@ -108,21 +108,23 @@ Item {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 0
+                    Label {
+                        Layout.fillWidth: true
+                        text: Player.hasTrack ? Player.title : "Ничего не играет"
+                        type: "titleSmall"
+                    }
+                    // Исполнитель · кодек (по правому краю — прямо над временем)
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 8
                         Label {
                             Layout.fillWidth: true
-                            text: Player.hasTrack ? Player.title : "Ничего не играет"
-                            type: "titleSmall"
+                            text: Player.errorText !== "" ? Player.errorText
+                                : Player.hasTrack ? Player.artist : "Выберите трек в «Мне нравится» или плейлисте"
+                            type: "bodySmall"
+                            color: Player.errorText !== "" ? Theme.error : Theme.fgSurfaceVariant
                         }
-                    }
-                    Label {
-                        Layout.fillWidth: true
-                        text: Player.errorText !== "" ? Player.errorText
-                            : Player.hasTrack ? Player.artist : "Выберите трек в «Мне нравится» или плейлисте"
-                        type: "bodySmall"
-                        color: Player.errorText !== "" ? Theme.error : Theme.fgSurfaceVariant
+                        CodecBadge { Layout.alignment: Qt.AlignBottom }
                     }
                     RowLayout {
                         Layout.fillWidth: true
@@ -140,9 +142,7 @@ Item {
                             interactive: true
                             onCommitted: v => Player.seek(v)
                         }
-                        CodecBadge {}
                         Label {
-                            Layout.leftMargin: -2
                             text: root._time(seekBar.dragging ? seekBar.dragValue * Player.durationMs : Player.positionMs)
                                   + " / " + root._time(Player.durationMs)
                             type: "labelSmall"

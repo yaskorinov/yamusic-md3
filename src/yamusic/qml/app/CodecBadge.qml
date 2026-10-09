@@ -2,11 +2,11 @@ import QtQuick
 import Md3
 import YaMusic.Core
 
-// Кодек играющего трека (FLAC, AAC 256…) — маленькая плашка рядом со временем.
+// Кодек играющего трека (FLAC, AAC 256…) — маленькая плашка над временем в мини-плеере.
 Rectangle {
     visible: Player.hasTrack && Player.codec !== ""
     implicitWidth: codec.implicitWidth + 10
-    implicitHeight: 18
+    implicitHeight: 16
     radius: 5
     color: Theme.surfaceContainerHigh
 
