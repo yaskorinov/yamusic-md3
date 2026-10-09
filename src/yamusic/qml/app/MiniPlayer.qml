@@ -116,12 +116,6 @@ Item {
                             text: Player.hasTrack ? Player.title : "Ничего не играет"
                             type: "titleSmall"
                         }
-                        Label {
-                            visible: Player.hasTrack && Player.codec !== ""
-                            text: Player.codec
-                            type: "labelSmall"
-                            color: Theme.fgSurfaceVariant
-                        }
                     }
                     Label {
                         Layout.fillWidth: true
@@ -146,7 +140,9 @@ Item {
                             interactive: true
                             onCommitted: v => Player.seek(v)
                         }
+                        CodecBadge {}
                         Label {
+                            Layout.leftMargin: -2
                             text: root._time(seekBar.dragging ? seekBar.dragValue * Player.durationMs : Player.positionMs)
                                   + " / " + root._time(Player.durationMs)
                             type: "labelSmall"

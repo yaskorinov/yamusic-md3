@@ -190,7 +190,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.topMargin: -6
                     horizontalAlignment: Text.AlignHCenter
-                    text: Player.album + (Player.codec !== "" ? "  ·  " + Player.codec : "")
+                    text: Player.album
                     type: "bodySmall"
                     color: Theme.fgSurfaceVariant
                 }
@@ -221,6 +221,7 @@ Item {
                         interactive: true
                         onCommitted: v => Player.seek(v)
                     }
+                    CodecBadge { Layout.rightMargin: -4 }
                     Label {
                         text: "−" + root._time(Player.durationMs - Player.positionMs)
                         type: "labelMedium"

@@ -85,6 +85,7 @@ class Player(QObject):
         self._played = 0.0                  # сколько секунд текущего трека реально проиграно
         self._last_time: float | None = None
         self._track_live = False            # trackStarted отправлен, trackEnded — ещё нет
+        self._direction = 1                 # куда сдвинулась очередь: +1 вперёд, -1 назад (шторка смены темы)
         # Состояние mpv — из наблюдателей; синхронные запросы к libmpv из GUI-потока блокируются,
         # пока mpv открывает сетевой поток, и подвешивают анимации (видно на смене темы).
         self._paused = False
@@ -253,6 +254,11 @@ class Player(QObject):
     def errorText(self) -> str:
         return self._error
 
+    @Property(int, notify=trackChanged)
+    def direction(self) -> int:
+        """+1 — переход вперёд (следующий, новый список), -1 — назад."""
+        return self._direction
+
     @Property(str, notify=queueChanged)
     def source(self) -> str:
         """Тип очереди: wave | liked | playlist | '' — волна, например, без перемешивания."""
@@ -271,6 +277,7 @@ class Player(QObject):
             return
         self._context = context
         self._feeder = feeder
+        self._direction = 1
         self._queue.reset(items)
         self._order = self._make_order(row)
         self._pos = self._order.index(row)
@@ -323,7 +330,9 @@ class Player(QObject):
     @Slot(int)
     def playIndex(self, index: int) -> None:
         if 0 <= index < self._queue.count and index in self._order:
-            self._pos = self._order.index(index)
+            pos = self._order.index(index)
+            self._direction = -1 if pos < self._pos else 1
+            self._pos = pos
             self.queueChanged.emit()
             self._start_current()
 
@@ -354,6 +363,7 @@ class Player(QObject):
         nxt = self._next_pos(manual=True)
         if nxt is not None:
             self._pos = nxt
+            self._direction = 1
             self.queueChanged.emit()
             self._start_current()
 
@@ -364,6 +374,7 @@ class Player(QObject):
             self.seekMs(0)
             return
         self._pos = (self._pos - 1) % len(self._order)
+        self._direction = -1
         self.queueChanged.emit()
         self._start_current()
 
@@ -592,6 +603,7 @@ class Player(QObject):
         if nxt is None:
             return
         self._pos = nxt
+        self._direction = 1
         self._prefetched_for = -1
         self._cmd(lambda: self._mpv.playlist_remove(0))
         self.queueChanged.emit()

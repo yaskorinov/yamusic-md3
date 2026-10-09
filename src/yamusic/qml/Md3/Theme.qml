@@ -17,7 +17,12 @@ Item {
     // QML считает имена вида onSomething обработчиками сигналов, и Behavior на них роняет движок.
 
     // true, пока идёт смена схемы: компоненты отключают свои Behavior на цвет, чтобы не было двойной анимации.
-    readonly property bool transitioning: _anim.running
+    readonly property bool transitioning: _anim.running || (wipe !== null && wipe.running)
+
+    // Если задан ThemeWipe — схема меняется «шторкой» в сторону wipeDirection (+1 вправо, -1 влево),
+    // иначе — плавной анимацией всех цветов.
+    property Item wipe: null
+    property int wipeDirection: 1
 
     // публичное имя → ключ в ThemeEngine.colors
     readonly property var _roles: ({
@@ -110,9 +115,22 @@ Item {
         _toLab = lab
     }
 
+    function _applyNow() {
+        _anim.stop()
+        const lab = Mix.labMap(ThemeEngine.colors)
+        _toLab = lab
+        _fromLab = lab
+        _p = 1
+    }
+
     Connections {
         target: ThemeEngine
-        function onSchemeChanged() { root._startTransition() }
+        function onSchemeChanged() {
+            if (root.wipe !== null && root.wipe.visible)
+                root.wipe.start(root.wipeDirection, root._applyNow)
+            else
+                root._startTransition()
+        }
     }
 
     NumberAnimation {

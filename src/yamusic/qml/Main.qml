@@ -30,93 +30,111 @@ Window {
         }
     }
 
-    RowLayout {
+    // Всё содержимое окна — источник снимка для шторки смены темы (ThemeWipe поверх, вне его)
+    Item {
+        id: scene
         anchors.fill: parent
-        anchors.margins: 8
-        anchors.leftMargin: 0
-        spacing: 8
 
-        Sidebar {
-            Layout.fillHeight: true
-            Layout.preferredWidth: implicitWidth
-            Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
-            router: router
-            compact: win.compactSidebar
-        }
+        Rectangle { anchors.fill: parent; color: Theme.surface }
 
-        // Контент
-        Surface {
-            id: content
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            level: "container"
-            clip: true
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: 8
+            anchors.leftMargin: 0
+            spacing: 8
 
-            TopBar {
-                id: topBar
-                anchors.left: parent.left
-                anchors.right: parent.right
+            Sidebar {
+                Layout.fillHeight: true
+                Layout.preferredWidth: implicitWidth
+                Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
                 router: router
-                window: win
-                z: 2
+                compact: win.compactSidebar
             }
 
-            Item {
-                id: pageHost
-                anchors.top: topBar.bottom
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
+            // Контент
+            Surface {
+                id: content
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                level: "container"
+                clip: true
 
-                Router {
-                    id: router
-                    pages: ({
-                        home: Qt.resolvedUrl("app/pages/HomePage.qml"),
-                        search: Qt.resolvedUrl("app/pages/SearchPage.qml"),
-                        wave: Qt.resolvedUrl("app/pages/WavePage.qml"),
-                        liked: Qt.resolvedUrl("app/pages/LikedPage.qml"),
-                        settings: Qt.resolvedUrl("app/pages/SettingsPage.qml"),
-                        account: Qt.resolvedUrl("app/pages/AccountPage.qml"),
-                        playlist: Qt.resolvedUrl("app/pages/PlaylistPage.qml")
-                    })
-                    anchors.fill: parent
-                    Component.onCompleted: reset(win.startPage)
+                TopBar {
+                    id: topBar
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    router: router
+                    window: win
+                    z: 2
+                }
+
+                Item {
+                    id: pageHost
+                    anchors.top: topBar.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+
+                    Router {
+                        id: router
+                        pages: ({
+                            home: Qt.resolvedUrl("app/pages/HomePage.qml"),
+                            search: Qt.resolvedUrl("app/pages/SearchPage.qml"),
+                            wave: Qt.resolvedUrl("app/pages/WavePage.qml"),
+                            liked: Qt.resolvedUrl("app/pages/LikedPage.qml"),
+                            settings: Qt.resolvedUrl("app/pages/SettingsPage.qml"),
+                            account: Qt.resolvedUrl("app/pages/AccountPage.qml"),
+                            playlist: Qt.resolvedUrl("app/pages/PlaylistPage.qml")
+                        })
+                        anchors.fill: parent
+                        Component.onCompleted: reset(win.startPage)
+                    }
+                }
+
+                MiniPlayer {
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 16
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: Math.min(parent.width - 32, 1080)
+                    z: 3
+                    onOpenNowPlaying: center => nowPlaying.show(center)
                 }
             }
 
-            MiniPlayer {
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: 16
-                anchors.horizontalCenter: parent.horizontalCenter
-                width: Math.min(parent.width - 32, 1080)
-                z: 3
-                onOpenNowPlaying: center => nowPlaying.show(center)
+            // Правая панель
+            Item {
+                Layout.fillHeight: true
+                Layout.preferredWidth: win.panelShown ? 340 : 0
+                Layout.leftMargin: win.panelShown ? 0 : -8   // убирает зазор RowLayout у закрытой панели
+                Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
+                Behavior on Layout.leftMargin { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
+                clip: true
+
+                RightPanel {
+                    width: 340
+                    height: parent.height
+                    opacity: win.panelShown ? 1 : 0
+                    Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsDefault } }
+                }
             }
         }
 
-        // Правая панель
-        Item {
-            Layout.fillHeight: true
-            Layout.preferredWidth: win.panelShown ? 340 : 0
-            Layout.leftMargin: win.panelShown ? 0 : -8   // убирает зазор RowLayout у закрытой панели
-            Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
-            Behavior on Layout.leftMargin { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
-            clip: true
-
-            RightPanel {
-                width: 340
-                height: parent.height
-                opacity: win.panelShown ? 1 : 0
-                Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsDefault } }
-            }
+        NowPlaying {
+            id: nowPlaying
+            anchors.fill: parent
+            z: 100
         }
     }
 
-    NowPlaying {
-        id: nowPlaying
+    // Смена цвета под новую обложку: шторка слева направо при переходе вперёд, справа налево — назад
+    ThemeWipe {
+        id: themeWipe
         anchors.fill: parent
-        z: 100
+        source: scene
+        z: 1000
+        Component.onCompleted: Theme.wipe = themeWipe
     }
+    Binding { target: Theme; property: "wipeDirection"; value: Player.direction }
 
     ResizeEdges { window: win }
 
