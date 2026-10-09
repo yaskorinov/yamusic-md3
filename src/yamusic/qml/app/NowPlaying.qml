@@ -302,14 +302,26 @@ Item {
             }
 
             // ---- Колонка очереди / текста (справа) ----
+            // Смена вкладки — shared axis X (порядок как у переключателя: текст слева, очередь справа):
+            // уходящая уезжает в свою сторону и гаснет, новая выезжает с другой.
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
 
+                component TabShift: NumberAnimation {
+                    duration: 460
+                    easing.type: Easing.BezierSpline
+                    easing.bezierCurve: Theme.motion.emphasizedDecelerate
+                }
+
                 ListView {
                     id: queueList
+                    property real shown: root.tab === "queue" ? 1 : 0
+                    Behavior on shown { TabShift {} }
                     anchors.fill: parent
-                    visible: root.tab === "queue"
+                    visible: shown > 0.001
+                    opacity: Math.pow(shown, 1.6)
+                    transform: Translate { x: (1 - queueList.shown) * 80 }
                     clip: true
                     model: Player.queue
                     boundsBehavior: Flickable.StopAtBounds
@@ -354,8 +366,13 @@ Item {
                 SmoothScroll { flickable: queueList; wheelStep: Settings.wheelStep; visible: queueList.visible }
 
                 LyricsView {
+                    id: lyricsView
+                    property real shown: root.tab === "lyrics" ? 1 : 0
+                    Behavior on shown { TabShift {} }
                     anchors.fill: parent
-                    visible: root.tab === "lyrics" && root.visible
+                    visible: shown > 0.001 && root.visible
+                    opacity: Math.pow(shown, 1.6)
+                    transform: Translate { x: -(1 - lyricsView.shown) * 80 }
                     fontSize: Math.max(26, Math.min(40, root.width / 36))
                 }
             }
