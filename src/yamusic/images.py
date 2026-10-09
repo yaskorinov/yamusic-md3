@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, QStandardPaths
-from PySide6.QtNetwork import QNetworkAccessManager, QNetworkDiskCache
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkDiskCache, QNetworkRequest
 from PySide6.QtQml import QQmlNetworkAccessManagerFactory
 
 CACHE_BYTES = 512 * 1024 * 1024
@@ -12,6 +12,16 @@ CACHE_BYTES = 512 * 1024 * 1024
 def cache_dir(sub: str) -> str:
     base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.CacheLocation)
     return f"{base}/{sub}"
+
+
+class _Http1Nam(QNetworkAccessManager):
+    """Только HTTP/1.1: по HTTP/2 сервер обложек Яндекса отвечает REFUSED_STREAM, когда страница
+    разом просит десятки картинок («Server refused a stream»), и часть обложек не появляется."""
+
+    def createRequest(self, op, request, data=None):
+        request = QNetworkRequest(request)
+        request.setAttribute(QNetworkRequest.Attribute.Http2AllowedAttribute, False)
+        return super().createRequest(op, request, data)
 
 
 class CachingNamFactory(QQmlNetworkAccessManagerFactory):
@@ -23,7 +33,7 @@ class CachingNamFactory(QQmlNetworkAccessManagerFactory):
         self._dir = cache_dir("images")
 
     def create(self, parent: QObject) -> QNetworkAccessManager:
-        nam = QNetworkAccessManager(parent)
+        nam = _Http1Nam(parent)
         disk = QNetworkDiskCache(nam)
         disk.setCacheDirectory(self._dir)
         disk.setMaximumCacheSize(CACHE_BYTES)

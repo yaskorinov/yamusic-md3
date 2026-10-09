@@ -12,6 +12,8 @@ Item {
     property string title
     property string version
     property string artists
+    property var artistRefs: []        // [{ id, name }] — для перехода к исполнителю
+    property string albumId
     property string album
     property string cover
     property int durationMs: 0
@@ -93,18 +95,22 @@ Item {
                 }
                 Item { Layout.fillWidth: true }
             }
-            Label {
+            LinkLabel {
                 Layout.fillWidth: true
                 text: root.artists
                 type: "bodyMedium"
                 color: Theme.fgSurfaceVariant
+                linkEnabled: (root.artistRefs ?? []).length > 0
+                onClicked: Catalog.openArtists(root.artistRefs)
             }
         }
 
-        Label {
+        LinkLabel {
             visible: root.wide
             Layout.fillWidth: true
             Layout.preferredWidth: 2
+            linkEnabled: root.albumId !== ""
+            onClicked: Catalog.openAlbum(root.albumId)
             text: root.album
             type: "bodyMedium"
             color: Theme.fgSurfaceVariant

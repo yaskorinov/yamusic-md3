@@ -97,7 +97,9 @@ Window {
                             liked: Qt.resolvedUrl("app/pages/LikedPage.qml"),
                             settings: Qt.resolvedUrl("app/pages/SettingsPage.qml"),
                             account: Qt.resolvedUrl("app/pages/AccountPage.qml"),
-                            playlist: Qt.resolvedUrl("app/pages/PlaylistPage.qml")
+                            playlist: Qt.resolvedUrl("app/pages/PlaylistPage.qml"),
+                            album: Qt.resolvedUrl("app/pages/AlbumPage.qml"),
+                            artist: Qt.resolvedUrl("app/pages/ArtistPage.qml")
                         })
                         anchors.fill: parent
                         Component.onCompleted: reset(win.startPage)
@@ -148,6 +150,29 @@ Window {
         Component.onCompleted: Theme.wipe = themeWipe
     }
     Binding { target: Theme; property: "wipeDirection"; value: Player.direction }
+
+    // Переходы к исполнителю / альбому / плейлисту — откуда угодно (строки треков, плееры)
+    Connections {
+        target: Catalog
+        function onOpenRequested(name, props) {
+            artistMenu.close()
+            if (nowPlaying.open)
+                nowPlaying.hide()
+            router.push(name, props)
+        }
+        function onChooseArtist(refs) {
+            artistMenu.refs = refs
+            artistMenu.open(refs.map(r => ({ text: r.name, icon: "person" })), cursor.point.position)
+        }
+    }
+    HoverHandler { id: cursor }
+    Menu {
+        id: artistMenu
+        property var refs: []
+        anchors.fill: parent
+        z: 2000
+        onPicked: i => Catalog.openArtist(refs[i].id)
+    }
 
     ResizeEdges { window: win }
 

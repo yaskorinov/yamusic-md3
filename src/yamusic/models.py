@@ -22,11 +22,43 @@ def track_to_dict(track) -> dict[str, object]:
         "title": track.title or "",
         "version": getattr(track, "version", None) or "",
         "artists": ", ".join(a.name for a in track.artists if a.name),
+        "artistRefs": [{"id": str(a.id), "name": a.name} for a in track.artists if a.id and a.name],
         "album": (album.title or "") if album else "",
         "cover": cover_url(track.cover_uri or (album.cover_uri if album else None)),
         "durationMs": track.duration_ms or 0,
         "explicit": track.content_warning == "explicit",
         "available": track.available is not False,
+    }
+
+
+ALBUM_TYPES = {"single": "Сингл", "compilation": "Сборник", "podcast": "Подкаст", "audiobook": "Аудиокнига"}
+
+
+def album_to_dict(album) -> dict[str, object]:
+    kind = ALBUM_TYPES.get(album.type or "", "Альбом")
+    if kind == "Альбом" and album.track_count and album.track_count <= 6 and album.type != "compilation":
+        kind = "EP" if album.track_count > 1 else "Сингл"
+    return {
+        "albumId": str(album.id),
+        "title": album.title or "",
+        "version": album.version or "",
+        "artists": ", ".join(a.name for a in (album.artists or []) if a.name),
+        "artistRefs": [{"id": str(a.id), "name": a.name} for a in (album.artists or []) if a.id and a.name],
+        "year": album.year or 0,
+        "kind": kind,
+        "trackCount": album.track_count or 0,
+        "cover": cover_url(album.cover_uri or album.og_image),
+        "explicit": album.content_warning == "explicit",
+    }
+
+
+def artist_to_dict(artist) -> dict[str, object]:
+    uri = (artist.cover.uri or artist.cover.items_uri and artist.cover.items_uri[0]) if artist.cover else None
+    return {
+        "artistId": str(artist.id),
+        "name": artist.name or "",
+        "cover": cover_url(uri or artist.og_image),
+        "genres": ", ".join(artist.genres or []),
     }
 
 
@@ -134,12 +166,16 @@ class DictListModel(QAbstractListModel):
         self.endRemoveRows()
         self.countChanged.emit()
 
+    @Slot(str, "QVariant", result=int)
     def find(self, key: str, value: object) -> int:
         return next((i for i, item in enumerate(self._items) if item.get(key) == value), -1)
 
 
-TRACK_KEYS = ["trackId", "albumId", "title", "version", "artists", "album", "cover", "durationMs", "explicit", "available"]
+TRACK_KEYS = ["trackId", "albumId", "title", "version", "artists", "artistRefs", "album", "cover", "durationMs",
+              "explicit", "available"]
 PLAYLIST_KEYS = ["uid", "kind", "title", "trackCount", "cover", "owner"]
+ALBUM_KEYS = ["albumId", "title", "version", "artists", "artistRefs", "year", "kind", "trackCount", "cover", "explicit"]
+ARTIST_KEYS = ["artistId", "name", "cover", "genres"]
 
 
 class TrackListModel(DictListModel):
@@ -151,3 +187,13 @@ class TrackListModel(DictListModel):
 class PlaylistListModel(DictListModel):
     def __init__(self, parent: QObject | None = None):
         super().__init__(PLAYLIST_KEYS, parent)
+
+
+class AlbumListModel(DictListModel):
+    def __init__(self, parent: QObject | None = None):
+        super().__init__(ALBUM_KEYS, parent)
+
+
+class ArtistListModel(DictListModel):
+    def __init__(self, parent: QObject | None = None):
+        super().__init__(ARTIST_KEYS, parent)

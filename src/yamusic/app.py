@@ -17,6 +17,7 @@ from PySide6.QtQuick import QQuickWindow
 from . import icons, settings, theme  # noqa: F401  регистрируют YaMusic.Core
 from .aio import AsyncRunner
 from .auth import Auth
+from .catalog import Catalog
 from .display import prefer_fastest_screen
 from .history import PlayReporter
 from .images import CachingNamFactory
@@ -116,6 +117,8 @@ def main(argv: list[str] | None = None) -> int:
     qmlRegisterSingletonInstance(Wave, "YaMusic.Core", 1, 0, "Wave", wave)
     reporter = PlayReporter(runner, auth, player)  # noqa: F841
     lyrics = Lyrics(runner, auth, player)
+    catalog = Catalog(runner, auth)
+    qmlRegisterSingletonInstance(Catalog, "YaMusic.Core", 1, 0, "Catalog", catalog)
     qmlRegisterSingletonInstance(Lyrics, "YaMusic.Core", 1, 0, "Lyrics", lyrics)
 
     engine = QQmlApplicationEngine()

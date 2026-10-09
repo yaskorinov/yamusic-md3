@@ -10,7 +10,7 @@ Page {
     showHeader: false
 
     readonly property bool signedIn: Auth.state === "signedIn"
-    readonly property bool playing: Wave.active && Player.playing
+    readonly property bool playing: Wave.active && Wave.stationTitle === "" && Player.playing
 
     // Герой: морфящиеся фигуры + большая кнопка. Пока волна играет — фигуры медленно вращаются.
     Item {

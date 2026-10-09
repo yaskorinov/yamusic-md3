@@ -48,6 +48,8 @@ Surface {
                     title: model.title
                     version: model.version
                     artists: model.artists
+                    artistRefs: model.artistRefs
+                    albumId: model.albumId
                     cover: model.cover
                     durationMs: model.durationMs
                     explicit: model.explicit

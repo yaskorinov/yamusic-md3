@@ -117,8 +117,10 @@ Item {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 8
-                        Label {
+                        LinkLabel {
                             Layout.fillWidth: true
+                            linkEnabled: Player.errorText === "" && Player.hasTrack
+                            onClicked: Catalog.openArtists(Player.track.artistRefs ?? [])
                             text: Player.errorText !== "" ? Player.errorText
                                 : Player.hasTrack ? Player.artist : "Выберите трек в «Мне нравится» или плейлисте"
                             type: "bodySmall"

@@ -362,13 +362,13 @@ Item {
             }
         }
 
-        // Пауза: три точки «дышат» и заполняются
+        // Пауза: три фигуры «дышат» и заполняются
         Row {
             visible: line.isGap
             anchors.verticalCenter: parent.verticalCenter
             anchors.verticalCenterOffset: -root.lineGap / 2
             x: root.fontSize * 0.1
-            spacing: root.fontSize * 0.28
+            spacing: root.fontSize * 0.24
             transformOrigin: Item.Center
             scale: {
                 if (!line.isActive)
@@ -380,16 +380,19 @@ Item {
             opacity: line.isActive ? 1 : 0
             Behavior on opacity { NumberAnimation { duration: 300 } }
 
+            // Вместо точек — три маленькие фигуры MD3E: «наливаются» по очереди и медленно вращаются
             Repeater {
-                model: 3
-                Rectangle {
+                model: ["cookie4", "clover4", "cookie6"]
+                MorphShape {
                     required property int index
-                    readonly property real d: root.fontSize * 0.3
-                    width: d
-                    height: d
-                    radius: d / 2
+                    required property string modelData
+                    readonly property real fill: Math.max(0, Math.min(1, line.gapProgress * 3 - index))
+                    width: root.fontSize * 0.6
+                    height: width
+                    shape: fill >= 1 ? "cookie9" : modelData
                     color: root.textColor
-                    opacity: root.dimAlpha + (1 - root.dimAlpha) * Math.max(0, Math.min(1, line.gapProgress * 3 - index))
+                    opacity: root.dimAlpha + (1 - root.dimAlpha) * fill
+                    rotation: line.isActive ? root.pos * (index % 2 ? -40 : 50) + index * 30 : 0
                 }
             }
         }

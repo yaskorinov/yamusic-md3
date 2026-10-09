@@ -104,6 +104,8 @@ class Wave(QObject):
         self._fetching = False
         self._gen = 0
         self._active = False
+        self._station = ""                         # сид волны по исполнителю/треку
+        self._station_title = ""
         self._feeder = self._more                  # один объект: плеер сравнивает по identity
 
         auth.signedIn.connect(self._load_settings)
@@ -143,13 +145,30 @@ class Wave(QObject):
 
     # --- управление ------------------------------------------------------
 
+    @Property(str, notify=stateChanged)
+    def stationTitle(self) -> str:
+        """Волна по исполнителю/треку («» — «Моя волна»)."""
+        return self._station_title
+
     @Slot()
     def play(self) -> None:
-        """Большая кнопка: запустить волну или поставить/снять паузу, если она уже играет."""
-        if self._active:
+        """Большая кнопка: запустить «Мою волну» или поставить/снять паузу, если она уже играет."""
+        if self._active and not self._station:
             self._player.togglePlay()
         else:
+            self._set_station("", "")
             self._start(replace=False)
+
+    @Slot(str, str)
+    def playStation(self, seed: str, title: str) -> None:
+        """Волна от исполнителя/трека: сид вида artist:ID или track:ID, без настроек «Моей волны»."""
+        self._set_station(seed, title)
+        self._start(replace=False)
+
+    def _set_station(self, seed: str, title: str) -> None:
+        if (seed, title) != (self._station, self._station_title):
+            self._station, self._station_title = seed, title
+            self.stateChanged.emit()
 
     @Slot(str, str)
     def select(self, key: str, seed: str) -> None:
@@ -164,11 +183,14 @@ class Wave(QObject):
         if self._settings is not None:
             self._settings.waveSeeds = ",".join(selection.values())
         if self._active:
+            self._set_station("", "")
             self._start(replace=True)
 
     # --- сессия ----------------------------------------------------------
 
     def _seeds(self) -> list[str]:
+        if self._station:
+            return [self._station]
         context = self._selection.get("context")
         return [context or WAVE_SEED] + [s for k, s in self._selection.items() if k != "context"]
 

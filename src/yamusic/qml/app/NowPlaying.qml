@@ -171,18 +171,22 @@ Item {
                     type: "headlineMedium"
                     weight: 700
                 }
-                Label {
-                    Layout.fillWidth: true
+                LinkLabel {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.maximumWidth: left.width
                     Layout.topMargin: -6
                     horizontalAlignment: Text.AlignHCenter
+                    onClicked: Catalog.openArtists(Player.track.artistRefs ?? [])
                     text: Player.artist
                     type: "titleMedium"
                     color: Theme.fgSurfaceVariant
                 }
-                Label {
-                    Layout.fillWidth: true
+                LinkLabel {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.maximumWidth: left.width
                     Layout.topMargin: -6
                     horizontalAlignment: Text.AlignHCenter
+                    onClicked: Catalog.openAlbum(Player.track.albumId ?? "")
                     text: Player.album + (Player.codec !== "" ? "  ·  " + Player.codec : "")
                     type: "bodySmall"
                     color: Theme.fgSurfaceVariant
@@ -309,6 +313,8 @@ Item {
                         title: model.title
                         version: model.version
                         artists: model.artists
+                        artistRefs: model.artistRefs
+                        albumId: model.albumId
                         album: model.album
                         cover: model.cover
                         durationMs: model.durationMs

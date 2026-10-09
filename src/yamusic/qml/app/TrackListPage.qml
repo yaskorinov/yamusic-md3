@@ -21,6 +21,7 @@ Item {
     property string heroImage                  // обложка (url); если пусто — фигура с иконкой
     property string heroIcon: "queue_music"
     property var heroShape: "cookie9"
+    property var heroArtistRefs: []            // исполнители-ссылки под названием (альбом)
     readonly property bool scrolled: list.contentY - list.originY > 48
 
     signal trackActivated(int row)
@@ -156,6 +157,22 @@ Item {
                         type: page.width > 760 ? "displayMedium" : "displaySmall"
                         weight: 700
                     }
+                    Flow {
+                        visible: (page.heroArtistRefs ?? []).length > 0
+                        Layout.fillWidth: true
+                        spacing: 6
+                        Repeater {
+                            model: page.heroArtistRefs
+                            LinkLabel {
+                                required property var modelData
+                                required property int index
+                                text: modelData.name + (index < page.heroArtistRefs.length - 1 ? "," : "")
+                                type: "titleLarge"
+                                weight: 600
+                                onClicked: Catalog.openArtist(modelData.id)
+                            }
+                        }
+                    }
                     Label {
                         visible: text !== ""
                         Layout.fillWidth: true
@@ -199,6 +216,8 @@ Item {
             title: model.title
             version: model.version
             artists: model.artists
+            artistRefs: model.artistRefs
+            albumId: model.albumId
             album: model.album
             cover: model.cover
             durationMs: model.durationMs
