@@ -4,14 +4,24 @@ import Md3
 import YaMusic.Core
 
 // Плавающий мини-плеер-пилюля (низ контент-панели).
-// player — объект с полями: hasTrack, playing, title, artist, cover, position (0..1), volume.
 Item {
     id: root
 
-    required property var player
-    signal openNowPlaying()
+    signal openNowPlaying(point coverCenter)   // центр обложки в координатах окна — отсюда растёт блоб
 
     implicitHeight: 72
+
+    // Позиция приходит из Python ~5 раз в секунду; между обновлениями — плавно.
+    property real progress: Player.position
+    Behavior on progress {
+        enabled: Player.playing && !seekBar.dragging
+        NumberAnimation { duration: 220; easing.type: Easing.Linear }
+    }
+
+    function _time(ms) {
+        const s = Math.max(0, Math.round(ms / 1000))
+        return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0")
+    }
 
     Rectangle {
         id: bg
@@ -28,15 +38,42 @@ Item {
         spacing: 4
 
         // Управление
-        IconButton { icon: "shuffle"; checkable: true; enabled: root.player.hasTrack }
-        IconButton { icon: "skip_previous"; iconColor: Theme.fgSurface; enabled: root.player.hasTrack }
-        PlayButton {
-            size: 52
-            playing: root.player.playing
-            onClicked: root.player.togglePlay()
+        IconButton {
+            icon: "shuffle"
+            checkable: true
+            autoToggle: false
+            checked: Player.shuffle
+            enabled: Player.hasTrack
+            onClicked: Player.shuffle = !Player.shuffle
         }
-        IconButton { icon: "skip_next"; iconColor: Theme.fgSurface; enabled: root.player.hasTrack }
-        IconButton { icon: "repeat"; checkable: true; enabled: root.player.hasTrack }
+        IconButton { icon: "skip_previous"; iconColor: Theme.fgSurface; enabled: Player.hasTrack; onClicked: Player.previous() }
+        Item {
+            implicitWidth: 52
+            implicitHeight: 52
+            PlayButton {
+                anchors.fill: parent
+                size: 52
+                playing: Player.playing
+                enabled: Player.hasTrack
+                onClicked: Player.togglePlay()
+            }
+            LoadingIndicator {
+                anchors.centerIn: parent
+                size: 60
+                color: Theme.primary
+                visible: Player.buffering
+                opacity: 0.5
+            }
+        }
+        IconButton { icon: "skip_next"; iconColor: Theme.fgSurface; enabled: Player.hasTrack; onClicked: Player.next() }
+        IconButton {
+            icon: Player.repeat === "one" ? "repeat_one" : "repeat"
+            checkable: true
+            autoToggle: false
+            checked: Player.repeat !== "off"
+            enabled: Player.hasTrack
+            onClicked: Player.cycleRepeat()
+        }
 
         // Трек
         Item {
@@ -50,17 +87,18 @@ Item {
                 spacing: 12
 
                 Item {
+                    id: coverBox
                     Layout.preferredWidth: 48
                     Layout.preferredHeight: 48
                     MorphImage {
                         anchors.fill: parent
-                        visible: root.player.cover !== ""
-                        source: root.player.cover
-                        shape: root.player.playing ? "cookie12" : "softSquare"
+                        visible: Player.cover !== ""
+                        source: Player.cover
+                        shape: Player.playing ? "cookie12" : "softSquare"
                     }
                     MorphShape {
                         anchors.fill: parent
-                        visible: root.player.cover === ""
+                        visible: Player.cover === ""
                         shape: "softSquare"
                         color: Theme.surfaceContainerHigh
                         Icon { anchors.centerIn: parent; name: "music_note"; size: 24; color: Theme.fgSurfaceVariant }
@@ -70,33 +108,58 @@ Item {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 0
-                    Label {
+                    RowLayout {
                         Layout.fillWidth: true
-                        text: root.player.hasTrack ? root.player.title : "Ничего не играет"
-                        type: "titleSmall"
+                        spacing: 8
+                        Label {
+                            Layout.fillWidth: true
+                            text: Player.hasTrack ? Player.title : "Ничего не играет"
+                            type: "titleSmall"
+                        }
+                        Label {
+                            visible: Player.hasTrack && Player.codec !== ""
+                            text: Player.codec
+                            type: "labelSmall"
+                            color: Theme.fgSurfaceVariant
+                        }
                     }
                     Label {
                         Layout.fillWidth: true
-                        text: root.player.hasTrack ? root.player.artist : "Включите Мою волну или выберите трек"
+                        text: Player.errorText !== "" ? Player.errorText
+                            : Player.hasTrack ? Player.artist : "Выберите трек в «Мне нравится» или плейлисте"
                         type: "bodySmall"
-                        color: Theme.fgSurfaceVariant
+                        color: Player.errorText !== "" ? Theme.error : Theme.fgSurfaceVariant
                     }
-                    WavyProgress {
+                    RowLayout {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 14
-                        visible: root.player.hasTrack
-                        thickness: 3
-                        amplitude: 2
-                        wavelength: 28
-                        value: root.player.position
-                        wavy: root.player.playing
-                        interactive: true
-                        onCommitted: v => root.player.seek(v)
+                        visible: Player.hasTrack
+                        spacing: 8
+                        WavyProgress {
+                            id: seekBar
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 14
+                            thickness: 3
+                            amplitude: 2
+                            wavelength: 28
+                            value: root.progress
+                            wavy: Player.playing
+                            interactive: true
+                            onCommitted: v => Player.seek(v)
+                        }
+                        Label {
+                            text: root._time(seekBar.dragging ? seekBar.dragValue * Player.durationMs : Player.positionMs)
+                                  + " / " + root._time(Player.durationMs)
+                            type: "labelSmall"
+                            color: Theme.fgSurfaceVariant
+                        }
                     }
                 }
             }
 
-            TapHandler { onTapped: root.openNowPlaying() }
+            TapHandler {
+                enabled: Player.hasTrack
+                onTapped: root.openNowPlaying(coverBox.mapToItem(null, coverBox.width / 2, coverBox.height / 2))
+            }
         }
 
         // Панели и громкость
@@ -114,13 +177,13 @@ Item {
             checked: Settings.rightPanelOpen && Settings.rightPanelTab === "queue"
             onClicked: root._togglePanel("queue")
         }
-        Icon { Layout.leftMargin: 8; name: root.player.volume > 0.5 ? "volume_up" : root.player.volume > 0 ? "volume_down" : "volume_off"; size: 20 }
+        Icon { Layout.leftMargin: 8; name: Player.volume > 0.5 ? "volume_up" : Player.volume > 0 ? "volume_down" : "volume_off"; size: 20 }
         Slider {
             Layout.preferredWidth: 96
             trackHeight: 10
             handleHeight: 28
-            value: root.player.volume
-            onMoved: v => root.player.volume = v
+            value: Player.volume
+            onMoved: v => Player.volume = v
         }
     }
 

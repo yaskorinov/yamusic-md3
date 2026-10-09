@@ -1,0 +1,480 @@
+"""Плеер: очередь, mpv (libmpv), прямые ссылки Яндекс Музыки. Доступен в QML как Player.
+
+Без пауз между треками: в плейлисте mpv всегда «текущий + следующий». Ссылка на следующий трек
+запрашивается заранее, mpv переходит на него сам (gapless), а мы по смене playlist-pos двигаем очередь.
+Колбэки mpv приходят из его потока — всё, что трогает Qt, уходит в GUI-поток через runner.call_in_gui.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import locale
+import os
+import random
+import time
+from pathlib import Path
+
+import aiohttp
+import mpv
+from PySide6.QtCore import Property, QObject, Signal, Slot
+
+from .aio import AsyncRunner
+from .auth import Auth
+from .images import cache_dir
+from .models import TrackListModel
+
+QUALITY = {"lossless": "lossless", "high": "hq", "low": "nq"}
+CODEC_LABEL = {"flac": "FLAC", "flac-mp4": "FLAC", "aac-mp4": "AAC", "aac": "AAC",
+               "he-aac-mp4": "HE-AAC", "he-aac": "HE-AAC", "mp3": "MP3"}
+POSITION_EMIT_INTERVAL = 0.2  # с: QML сглаживает прогресс между обновлениями
+
+
+class Player(QObject):
+    trackChanged = Signal()
+    stateChanged = Signal()
+    positionChanged = Signal()
+    volumeChanged = Signal()
+    modeChanged = Signal()
+    queueChanged = Signal()
+    coverFileChanged = Signal()
+    errorChanged = Signal()
+
+    def __init__(self, runner: AsyncRunner, auth: Auth, parent: QObject | None = None):
+        super().__init__(parent)
+        self._runner = runner
+        self._auth = auth
+        self._settings: QObject | None = None
+
+        self._queue = TrackListModel(self)
+        self._order: list[int] = []        # порядок воспроизведения (индексы очереди), с учётом shuffle
+        self._pos = -1                      # позиция в _order
+        self._track: dict[str, object] = {}
+        self._playing = False
+        self._buffering = False
+        self._position_ms = 0
+        self._duration_ms = 0
+        self._last_emit = 0.0
+        self._shuffle = False
+        self._repeat = "off"                # off | all | one
+        self._codec = ""
+        self._cover_file = ""
+        self._error = ""
+        self._load_token = 0                # отменяет устаревшие ответы resolve
+        self._prefetched_for = -1           # индекс очереди, чья ссылка уже стоит в mpv вторым номером
+        self._http: aiohttp.ClientSession | None = None
+
+        # libmpv отказывается работать с не-C LC_NUMERIC, а QGuiApplication выставил локаль из системы
+        locale.setlocale(locale.LC_NUMERIC, "C")
+        self._mpv = mpv.MPV(
+            vid="no", ytdl=False, audio_display="no", input_default_bindings=False, input_vo_keyboard=False,
+            gapless_audio="weak", prefetch_playlist="yes", cache="yes", demuxer_max_bytes="64MiB",
+            keep_open="no", idle="yes", audio_client_name="yamusic",
+        )
+        if os.environ.get("YAMUSIC_AO"):  # тесты: YAMUSIC_AO=null — не играть в колонки
+            self._mpv.ao = os.environ["YAMUSIC_AO"]
+        self._mpv.volume = 70
+        self._mpv.observe_property("pause", lambda _n, v: self._gui(self._on_pause, v))
+        self._mpv.observe_property("core-idle", lambda _n, v: self._gui(self._on_idle, v))
+        self._mpv.observe_property("paused-for-cache", lambda _n, v: self._gui(self._on_buffering, v))
+        self._mpv.observe_property("time-pos", lambda _n, v: self._gui(self._on_time, v))
+        self._mpv.observe_property("duration", lambda _n, v: self._gui(self._on_duration, v))
+        self._mpv.observe_property("playlist-pos", lambda _n, v: self._gui(self._on_playlist_pos, v))
+        self._mpv.event_callback("end-file")(lambda e: self._gui(self._on_end_file, e))
+
+    def bind_settings(self, settings: QObject) -> None:
+        """Настройки (громкость, качество) — синглтон QML, он появляется после создания движка."""
+        self._settings = settings
+        self._mpv.volume = float(settings.volume) * 100
+        self.volumeChanged.emit()
+
+    def _gui(self, fn, *args) -> None:
+        self._runner.call_in_gui(lambda: fn(*args))
+
+    def shutdown(self) -> None:
+        try:
+            self._mpv.terminate()
+        except Exception:
+            pass
+        if self._http is not None and not self._http.closed:
+            try:
+                asyncio.run_coroutine_threadsafe(self._http.close(), self._runner.loop).result(timeout=1)
+            except Exception:
+                pass
+
+    # --- свойства --------------------------------------------------------
+
+    @Property(bool, notify=trackChanged)
+    def hasTrack(self) -> bool:
+        return bool(self._track)
+
+    @Property(str, notify=trackChanged)
+    def trackId(self) -> str:
+        return str(self._track.get("trackId", ""))
+
+    @Property(str, notify=trackChanged)
+    def title(self) -> str:
+        return str(self._track.get("title", ""))
+
+    @Property(str, notify=trackChanged)
+    def artist(self) -> str:
+        return str(self._track.get("artists", ""))
+
+    @Property(str, notify=trackChanged)
+    def album(self) -> str:
+        return str(self._track.get("album", ""))
+
+    @Property(str, notify=trackChanged)
+    def cover(self) -> str:
+        return str(self._track.get("cover", ""))
+
+    @Property("QVariantMap", notify=trackChanged)
+    def track(self) -> dict[str, object]:
+        return self._track
+
+    @Property(str, notify=coverFileChanged)
+    def coverFile(self) -> str:
+        """Локальная копия обложки (для темы и MPRIS)."""
+        return self._cover_file
+
+    @Property(str, notify=trackChanged)
+    def codec(self) -> str:
+        return self._codec
+
+    @Property(bool, notify=stateChanged)
+    def playing(self) -> bool:
+        return self._playing
+
+    @Property(bool, notify=stateChanged)
+    def buffering(self) -> bool:
+        return self._buffering
+
+    @Property(int, notify=positionChanged)
+    def positionMs(self) -> int:
+        return self._position_ms
+
+    @Property(int, notify=positionChanged)
+    def durationMs(self) -> int:
+        return self._duration_ms
+
+    @Property(float, notify=positionChanged)
+    def position(self) -> float:
+        return self._position_ms / self._duration_ms if self._duration_ms > 0 else 0.0
+
+    def _get_volume(self) -> float:
+        return float(self._mpv.volume or 0) / 100
+
+    def _set_volume(self, value: float) -> None:
+        value = max(0.0, min(1.0, float(value)))
+        self._mpv.volume = value * 100
+        if self._settings is not None:
+            self._settings.volume = value
+        self.volumeChanged.emit()
+
+    volume = Property(float, _get_volume, _set_volume, notify=volumeChanged)
+
+    def _get_shuffle(self) -> bool:
+        return self._shuffle
+
+    def _set_shuffle(self, value: bool) -> None:
+        if value == self._shuffle:
+            return
+        self._shuffle = value
+        current = self._order[self._pos] if 0 <= self._pos < len(self._order) else -1
+        self._order = self._make_order(current)
+        self._pos = self._order.index(current) if current >= 0 else -1
+        self.modeChanged.emit()
+        self._prefetch_next(force=True)
+
+    shuffle = Property(bool, _get_shuffle, _set_shuffle, notify=modeChanged)
+
+    def _get_repeat(self) -> str:
+        return self._repeat
+
+    def _set_repeat(self, value: str) -> None:
+        if value not in ("off", "all", "one") or value == self._repeat:
+            return
+        self._repeat = value
+        self._mpv.loop_file = "inf" if value == "one" else "no"
+        self.modeChanged.emit()
+        self._prefetch_next(force=True)
+
+    repeat = Property(str, _get_repeat, _set_repeat, notify=modeChanged)
+
+    @Property(QObject, constant=True)
+    def queue(self) -> TrackListModel:
+        return self._queue
+
+    @Property(int, notify=queueChanged)
+    def currentIndex(self) -> int:
+        return self._order[self._pos] if 0 <= self._pos < len(self._order) else -1
+
+    @Property(str, notify=errorChanged)
+    def errorText(self) -> str:
+        return self._error
+
+    # --- управление ------------------------------------------------------
+
+    @Slot(QObject, int)
+    def playFrom(self, model: QObject, row: int) -> None:
+        """Поставить в очередь всю модель (TrackListModel) и начать с row."""
+        items = [dict(i) for i in model.items()] if hasattr(model, "items") else []
+        if not items:
+            return
+        self._queue.reset(items)
+        self._order = self._make_order(row)
+        self._pos = self._order.index(row)
+        self.queueChanged.emit()
+        self._start_current()
+
+    @Slot(int)
+    def playIndex(self, index: int) -> None:
+        if 0 <= index < self._queue.count and index in self._order:
+            self._pos = self._order.index(index)
+            self.queueChanged.emit()
+            self._start_current()
+
+    @Slot()
+    def togglePlay(self) -> None:
+        if not self._track:
+            return
+        if self._mpv.idle_active:          # трек закончился и очередь встала — играть заново
+            self._start_current()
+        else:
+            self._mpv.pause = not self._mpv.pause
+
+    @Slot()
+    def play(self) -> None:
+        if self._track:
+            self._mpv.pause = False
+
+    @Slot()
+    def pause(self) -> None:
+        self._mpv.pause = True
+
+    @Slot()
+    def stop(self) -> None:
+        self._mpv.command("stop")
+
+    @Slot()
+    def next(self) -> None:
+        nxt = self._next_pos(manual=True)
+        if nxt is not None:
+            self._pos = nxt
+            self.queueChanged.emit()
+            self._start_current()
+
+    @Slot()
+    def previous(self) -> None:
+        # Как в большинстве плееров: после 3 с — в начало трека, иначе — предыдущий
+        if self._position_ms > 3000 or self._pos <= 0 and self._repeat != "all":
+            self.seekMs(0)
+            return
+        self._pos = (self._pos - 1) % len(self._order)
+        self.queueChanged.emit()
+        self._start_current()
+
+    @Slot(float)
+    def seek(self, fraction: float) -> None:
+        if self._duration_ms > 0:
+            self.seekMs(int(fraction * self._duration_ms))
+
+    @Slot(int)
+    def seekMs(self, ms: int) -> None:
+        if self._track:
+            try:
+                self._mpv.seek(max(0, ms) / 1000, reference="absolute")
+            except SystemError:
+                pass
+            self._position_ms = max(0, ms)
+            self.positionChanged.emit()
+
+    @Slot()
+    def cycleRepeat(self) -> None:
+        self.repeat = {"off": "all", "all": "one", "one": "off"}[self._repeat]
+
+    # --- внутреннее: очередь ----------------------------------------------
+
+    def _make_order(self, first: int) -> list[int]:
+        n = self._queue.count
+        order = list(range(n))
+        if self._shuffle and n > 1:
+            rest = [i for i in order if i != first]
+            random.shuffle(rest)
+            order = ([first] if first >= 0 else []) + rest
+        return order
+
+    def _next_pos(self, manual: bool) -> int | None:
+        if not self._order:
+            return None
+        if self._repeat == "one" and not manual:
+            return self._pos
+        if self._pos + 1 < len(self._order):
+            return self._pos + 1
+        return 0 if self._repeat == "all" or manual else None
+
+    def _start_current(self) -> None:
+        index = self.currentIndex
+        if index < 0:
+            return
+        track = self._queue.get(index)
+        self._set_track(track)
+        self._load_token += 1
+        token = self._load_token
+        self._prefetched_for = -1
+
+        def ready(result: tuple[str, str]) -> None:
+            if token != self._load_token:
+                return
+            url, codec = result
+            self._codec = codec
+            self.trackChanged.emit()
+            self._mpv.loadfile(url, "replace")
+            self._mpv.pause = False
+            self._prefetch_next()
+
+        self._runner.submit(self._resolve(str(track["trackId"])), ready, self._failed)
+        self._runner.submit(self._fetch_cover(str(track.get("cover", ""))), self._set_cover_file)
+
+    def _prefetch_next(self, force: bool = False) -> None:
+        """Поставить в mpv вторым номером следующий трек — для перехода без паузы."""
+        nxt = self._next_pos(manual=False)
+        if nxt is None or self._repeat == "one" or not self._track:
+            self._drop_queued()
+            return
+        index = self._order[nxt]
+        if index == self._prefetched_for and not force:
+            return
+        token = self._load_token
+        track = self._queue.get(index)
+
+        def ready(result: tuple[str, str]) -> None:
+            if token != self._load_token:
+                return
+            self._drop_queued()
+            self._mpv.playlist_append(result[0])
+            self._prefetched_for = index
+
+        self._runner.submit(self._resolve(str(track["trackId"])), ready, lambda e: None)
+
+    def _drop_queued(self) -> None:
+        try:
+            while int(self._mpv.playlist_count or 0) > 1 + int(self._mpv.playlist_pos or 0):
+                self._mpv.playlist_remove(int(self._mpv.playlist_count) - 1)
+        except (SystemError, TypeError):
+            pass
+        self._prefetched_for = -1
+
+    async def _resolve(self, track_id: str) -> tuple[str, str]:
+        client = self._auth.client
+        if client is None:
+            raise RuntimeError("Войдите в аккаунт, чтобы слушать музыку")
+        quality = QUALITY.get(str(getattr(self._settings, "quality", "lossless")), "lossless")
+        try:
+            info = (await client.tracks_file_info(track_id, quality=quality, transport="raw")).download_info
+        except Exception:
+            if quality == "hq":
+                raise
+            # Lossless/низкое качество недоступно или API изменился — откат на AAC/MP3
+            info = (await client.tracks_file_info(track_id, quality="hq", transport="raw")).download_info
+        label = CODEC_LABEL.get(info.codec, info.codec.upper())
+        if info.bitrate:
+            label += f" {info.bitrate}"
+        return (info.urls[0] if info.urls else info.url), label
+
+    async def _fetch_cover(self, url: str) -> str:
+        if not url:
+            return ""
+        folder = Path(cache_dir("covers"))
+        path = folder / (hashlib.sha1(url.encode()).hexdigest() + ".jpg")
+        if path.exists():
+            return str(path)
+        folder.mkdir(parents=True, exist_ok=True)
+        if self._http is None or self._http.closed:
+            self._http = aiohttp.ClientSession()
+        async with self._http.get(url) as response:
+            response.raise_for_status()
+            data = await response.read()
+        tmp = path.with_suffix(".part")
+        await asyncio.to_thread(tmp.write_bytes, data)
+        tmp.replace(path)
+        return str(path)
+
+    # --- внутреннее: события mpv (уже в GUI-потоке) -------------------------
+
+    def _set_track(self, track: dict[str, object]) -> None:
+        self._track = dict(track)
+        self._duration_ms = int(track.get("durationMs") or 0)
+        self._position_ms = 0
+        self._set_error("")
+        self.trackChanged.emit()
+        self.positionChanged.emit()
+
+    def _set_cover_file(self, path: str) -> None:
+        if path != self._cover_file:
+            self._cover_file = path
+            self.coverFileChanged.emit()
+
+    def _on_pause(self, paused) -> None:
+        self._update_playing()
+
+    def _on_idle(self, idle) -> None:
+        self._update_playing()
+
+    def _on_buffering(self, value) -> None:
+        if bool(value) != self._buffering:
+            self._buffering = bool(value)
+            self.stateChanged.emit()
+
+    def _update_playing(self) -> None:
+        playing = bool(self._track) and not bool(self._mpv.pause) and not bool(self._mpv.idle_active)
+        if playing != self._playing:
+            self._playing = playing
+            self.stateChanged.emit()
+
+    def _on_time(self, seconds) -> None:
+        if seconds is None:
+            return
+        now = time.monotonic()
+        if now - self._last_emit < POSITION_EMIT_INTERVAL:
+            return
+        self._last_emit = now
+        self._position_ms = int(seconds * 1000)
+        self.positionChanged.emit()
+
+    def _on_duration(self, seconds) -> None:
+        if seconds:
+            self._duration_ms = int(seconds * 1000)
+            self.positionChanged.emit()
+
+    def _on_playlist_pos(self, pos) -> None:
+        # mpv сам перешёл на заранее поставленный трек (gapless) → догоняем очередь
+        if pos is None or pos <= 0 or self._prefetched_for < 0:
+            return
+        nxt = self._next_pos(manual=False)
+        if nxt is None:
+            return
+        self._pos = nxt
+        self._prefetched_for = -1
+        self._mpv.playlist_remove(0)
+        self.queueChanged.emit()
+        self._set_track(self._queue.get(self.currentIndex))
+        self._runner.submit(self._fetch_cover(self.cover), self._set_cover_file)
+        self._prefetch_next()
+
+    def _on_end_file(self, event) -> None:
+        self._update_playing()
+        reason = getattr(getattr(event, "data", None), "reason", None)
+        if reason is not None and int(reason) == 4:   # MPV_END_FILE_REASON_ERROR
+            self._set_error("Не удалось воспроизвести трек — пропускаю")
+            if self._next_pos(manual=False) is not None:
+                self.next()
+
+    def _failed(self, error: BaseException) -> None:
+        self._set_error(f"Не удалось получить трек: {error}")
+        self._update_playing()
+
+    def _set_error(self, text: str) -> None:
+        if text != self._error:
+            self._error = text
+            self.errorChanged.emit()

@@ -19,6 +19,8 @@ from .auth import Auth
 from .display import prefer_fastest_screen
 from .images import CachingNamFactory
 from .library import Library
+from .mpris import Mpris
+from .player import Player
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 QML_DIR = PACKAGE_DIR / "qml"
@@ -95,6 +97,10 @@ def main(argv: list[str] | None = None) -> int:
     library = Library(runner, auth)
     qmlRegisterSingletonInstance(Auth, "YaMusic.Core", 1, 0, "Auth", auth)
     qmlRegisterSingletonInstance(Library, "YaMusic.Core", 1, 0, "Library", library)
+    # Все синглтоны-экземпляры регистрируются ДО создания движка: регистрация после того, как
+    # движок загрузил модуль YaMusic.Core, ломает разрешение типов во всём QML.
+    player = Player(runner, auth)
+    qmlRegisterSingletonInstance(Player, "YaMusic.Core", 1, 0, "Player", player)
 
     engine = QQmlApplicationEngine()
     nam_factory = CachingNamFactory()  # ссылка должна жить столько же, сколько движок
@@ -105,6 +111,10 @@ def main(argv: list[str] | None = None) -> int:
     app_settings = engine.singletonInstance("YaMusic.Core", "Settings")
     theme_engine = engine.singletonInstance("YaMusic.Core", "ThemeEngine")
     theme_engine.bind_settings(app_settings, app.styleHints())
+
+    player.bind_settings(app_settings)
+    # Цвет приложения — из обложки играющего трека
+    player.coverFileChanged.connect(lambda: theme_engine.setCover(player.coverFile))
     if args.light:  # разовое переопределение для разработки, в настройки не пишется
         theme_engine.dark = False
     if args.seed_image:
@@ -129,9 +139,16 @@ def main(argv: list[str] | None = None) -> int:
     if not args.offline:
         auth.start()
 
-    if args.screenshot:
-        window: QQuickWindow = engine.rootObjects()[0]
+    window: QQuickWindow = engine.rootObjects()[0]
 
+    def raise_window() -> None:
+        window.show()
+        window.raise_()
+        window.requestActivate()
+
+    mpris = Mpris(runner, player, raise_window, app.quit) if not args.screenshot else None  # noqa: F841
+
+    if args.screenshot:
         def grab() -> None:
             window.grabWindow().save(args.screenshot)
             app.quit()
@@ -139,5 +156,6 @@ def main(argv: list[str] | None = None) -> int:
         QTimer.singleShot(args.delay, grab)
 
     code = app.exec()
+    player.shutdown()
     runner.stop()
     return code

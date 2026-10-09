@@ -91,7 +91,11 @@ Item {
             explicit: model.explicit
             available: model.available
             liked: page.likedMarks && Library.isLiked(model.trackId)
-            onActivated: page.trackActivated(index)
+            current: model.trackId === Player.trackId
+            onActivated: {
+                page.trackActivated(index)
+                Player.playFrom(page.model, index)
+            }
         }
 
         footer: Item {

@@ -30,10 +30,38 @@ Surface {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
+            ListView {
+                id: queueList
+                anchors.fill: parent
+                visible: Settings.rightPanelTab === "queue" && Player.queue.count > 0
+                clip: true
+                model: Player.queue
+                boundsBehavior: Flickable.StopAtBounds
+                acceptedButtons: Qt.NoButton
+                reuseItems: true
+                delegate: TrackRow {
+                    required property int index
+                    required property var model
+                    width: ListView.view.width
+                    wide: false
+                    title: model.title
+                    version: model.version
+                    artists: model.artists
+                    cover: model.cover
+                    durationMs: model.durationMs
+                    explicit: model.explicit
+                    available: model.available
+                    current: index === Player.currentIndex
+                    onActivated: Player.playIndex(index)
+                }
+                Component.onCompleted: positionViewAtIndex(Math.max(0, Player.currentIndex - 1), ListView.Beginning)
+            }
+            SmoothScroll { flickable: queueList; wheelStep: Settings.wheelStep; visible: queueList.visible }
+
             EmptyState {
                 anchors.centerIn: parent
                 width: Math.min(parent.width, 280)
-                visible: Settings.rightPanelTab === "queue"
+                visible: Settings.rightPanelTab === "queue" && Player.queue.count === 0
                 icon: "queue_music"
                 shape: "cookie6"
                 title: "Очередь пуста"

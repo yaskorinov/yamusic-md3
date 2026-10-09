@@ -81,6 +81,23 @@ Page {
     }
 
     SettingsCard {
+        title: "Воспроизведение"
+        icon: "graphic_eq"
+
+        SettingRow {
+            title: "Качество звука"
+            description: Settings.quality === "lossless" ? "FLAC, если трек есть без потерь; иначе — AAC 256"
+                       : Settings.quality === "high" ? "AAC 256 кбит/с" : "AAC 192 кбит/с — экономит трафик"
+            ButtonGroup {
+                model: ["Обычное", "Высокое", "Без потерь"]
+                autoSelect: false
+                currentIndex: ["low", "high", "lossless"].indexOf(Settings.quality)
+                onActivated: i => Settings.quality = ["low", "high", "lossless"][i]
+            }
+        }
+    }
+
+    SettingsCard {
         title: "Окно"
         icon: "web_asset"
 

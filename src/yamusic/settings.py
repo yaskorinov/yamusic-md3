@@ -22,6 +22,9 @@ SCHEMA: dict[str, tuple[type, object]] = {
     "sidebarCollapsed": (bool, False),
     "windowWidth": (int, 1280),
     "windowHeight": (int, 800),
+    # Воспроизведение
+    "quality": (str, "lossless"),          # lossless | high | low
+    "volume": (float, 0.7),
     # Поведение
     "wheelStep": (int, 150),
 }

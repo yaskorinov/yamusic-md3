@@ -15,7 +15,7 @@ Window {
     minimumWidth: 720
     minimumHeight: 520
     visible: true
-    title: "YaMusic"
+    title: Player.hasTrack ? Player.title + " — " + Player.artist + " · YaMusic" : "YaMusic"
     flags: Qt.Window | Qt.FramelessWindowHint
     color: Theme.surface
 
@@ -29,8 +29,6 @@ Window {
             Settings.windowHeight = height
         }
     }
-
-    DemoPlayer { id: player }
 
     RowLayout {
         anchors.fill: parent
@@ -91,8 +89,8 @@ Window {
                 anchors.bottomMargin: 16
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: Math.min(parent.width - 32, 1080)
-                player: player
                 z: 3
+                onOpenNowPlaying: center => nowPlaying.show(center)
             }
         }
 
@@ -114,6 +112,12 @@ Window {
         }
     }
 
+    NowPlaying {
+        id: nowPlaying
+        anchors.fill: parent
+        z: 100
+    }
+
     ResizeEdges { window: win }
 
     Loader {
@@ -128,9 +132,22 @@ Window {
     // Навигация мышью «назад» и горячие клавиши
     TapHandler {
         acceptedButtons: Qt.BackButton
-        onTapped: router.back()
+        onTapped: nowPlaying.open ? nowPlaying.hide() : router.back()
     }
-    Shortcut { sequences: [StandardKey.Back, "Alt+Left"]; onActivated: router.back() }
+    Shortcut { sequences: [StandardKey.Back, "Alt+Left"]; onActivated: nowPlaying.open ? nowPlaying.hide() : router.back() }
+
+    // Плеер (пробел не перехватывается, пока фокус в поле ввода)
+    Shortcut { sequence: "Space"; onActivated: Player.togglePlay() }
+    Shortcut { sequences: ["Ctrl+Right", "Media Next"]; onActivated: Player.next() }
+    Shortcut { sequences: ["Ctrl+Left", "Media Previous"]; onActivated: Player.previous() }
+    Shortcut { sequence: "Ctrl+Up"; onActivated: Player.volume = Math.min(1, Player.volume + 0.05) }
+    Shortcut { sequence: "Ctrl+Down"; onActivated: Player.volume = Math.max(0, Player.volume - 0.05) }
+    Shortcut { sequence: "Shift+Right"; onActivated: Player.seekMs(Player.positionMs + 10000) }
+    Shortcut { sequence: "Shift+Left"; onActivated: Player.seekMs(Player.positionMs - 10000) }
+    Shortcut {
+        sequence: "Ctrl+P"
+        onActivated: nowPlaying.open ? nowPlaying.hide() : Player.hasTrack && nowPlaying.show(null)
+    }
     Shortcut {
         sequences: [StandardKey.Find]
         onActivated: {

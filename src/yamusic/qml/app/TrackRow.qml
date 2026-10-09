@@ -44,8 +44,9 @@ Item {
         opacity: root.available ? 1 : Theme.stateLayer.disabledContent
 
         Label {
+            visible: root.number > 0
             Layout.preferredWidth: 28
-            text: root.number > 0 ? root.number : ""
+            text: root.number
             type: "bodyMedium"
             color: Theme.fgSurfaceVariant
             horizontalAlignment: Text.AlignRight
