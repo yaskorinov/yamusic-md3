@@ -160,6 +160,7 @@ Item {
                 }
                 property real avgLevel: 0
                 property real beat: 0
+                Behavior on beat { NumberAnimation { duration: 110; easing.type: Easing.OutQuad } }
                 Connections {
                     target: Player
                     function onLevelChanged() {
@@ -168,18 +169,40 @@ Item {
                     }
                 }
 
-                MorphImage {
+                NowPlayingCover {
                     // Всё остальное в колонке занимает ~360 px — обложка берёт оставшееся
-                    scale: 1 + 0.055 * left.beat + 0.015 * Player.level
-                    Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
                     readonly property real s: Math.max(160, Math.min(left.width, left.height - 360, 440))
                     Layout.alignment: Qt.AlignHCenter
                     Layout.preferredWidth: s
                     Layout.preferredHeight: s
                     Layout.bottomMargin: 20
                     source: Player.cover.replace("400x400", "800x800")
-                    shape: Player.playing ? "cookie12" : "square"
-                    duration: Theme.motion.spatialSlow
+                    restShape: Player.playing ? "cookie12" : "square"
+                    direction: Player.direction
+                    pulse: Settings.coverPulse ? left.beat : 0
+                }
+
+                // Подписи при смене трека проявляются заново, чуть снизу
+                property real infoIn: 1
+                Connections {
+                    target: Player
+                    function onTrackChanged() {
+                        if (root.visible && left._lastId !== Player.trackId) {
+                            left.infoIn = 0
+                            infoAnim.restart()
+                        }
+                        left._lastId = Player.trackId
+                    }
+                }
+                property string _lastId: ""
+                NumberAnimation {
+                    id: infoAnim
+                    target: left
+                    property: "infoIn"
+                    to: 1
+                    duration: 520
+                    easing.type: Easing.BezierSpline
+                    easing.bezierCurve: Theme.motion.emphasizedDecelerate
                 }
 
                 Label {
@@ -188,6 +211,8 @@ Item {
                     text: Player.title
                     type: "headlineMedium"
                     weight: 700
+                    opacity: left.infoIn
+                    transform: Translate { y: (1 - left.infoIn) * 14 }
                 }
                 LinkLabel {
                     Layout.alignment: Qt.AlignHCenter
@@ -196,6 +221,8 @@ Item {
                     horizontalAlignment: Text.AlignHCenter
                     previewArtistId: (Player.track.artistRefs ?? []).length === 1 ? Player.track.artistRefs[0].id : ""
                     onClicked: Catalog.openArtists(Player.track.artistRefs ?? [])
+                    opacity: Math.max(0, left.infoIn * 1.3 - 0.3)    // чуть позже названия
+                    transform: Translate { y: (1 - left.infoIn) * 18 }
                     text: Player.artist
                     type: "titleMedium"
                     color: Theme.fgSurfaceVariant
@@ -206,6 +233,8 @@ Item {
                     Layout.topMargin: -6
                     horizontalAlignment: Text.AlignHCenter
                     onClicked: Catalog.openAlbum(Player.track.albumId ?? "")
+                    opacity: Math.max(0, left.infoIn * 1.3 - 0.3)    // чуть позже названия
+                    transform: Translate { y: (1 - left.infoIn) * 18 }
                     text: Player.album + (Player.codec !== "" ? "  ·  " + Player.codec : "")
                     type: "bodySmall"
                     color: Theme.fgSurfaceVariant

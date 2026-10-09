@@ -11,6 +11,9 @@ Item {
     property alias angle: mask.angle
     property alias duration: mask.duration
     property alias livingSpeed: mask.livingSpeed
+    property alias pulse: mask.pulse        // «дыхание» фигуры; картинка внутри не двигается
+
+    function jumpTo(next) { mask.jumpTo(next) }
     property color placeholderColor: Theme.surfaceContainerHighest
 
     // Подложка, пока картинка грузится (та же фигура).
@@ -18,6 +21,7 @@ Item {
         anchors.fill: parent
         shape: mask.shape
         angle: mask.angle
+        pulse: mask.pulse
         duration: mask.duration
         color: root.placeholderColor
         visible: image.status !== Image.Ready

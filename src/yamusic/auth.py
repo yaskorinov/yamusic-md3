@@ -12,6 +12,7 @@ from yandex_music.exceptions import DeviceAuthError, NetworkError, UnauthorizedE
 
 from . import tokens
 from .aio import AsyncRunner
+from .api import make_client
 
 DEVICE_NAME = "YaMusic (Linux)"
 
@@ -170,7 +171,7 @@ class Auth(QObject):
         self._set_state("signingIn")
 
         async def init() -> tuple[ClientAsync, dict[str, object], str]:
-            client = await ClientAsync(token).init()
+            client = await make_client(token).init()
             status = client.me
             account = status.account if status else None
             plus = status.plus if status else None

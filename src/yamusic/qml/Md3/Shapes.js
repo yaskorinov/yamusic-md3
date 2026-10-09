@@ -108,14 +108,17 @@ function blend(a, b, t) {
 }
 
 // Точки контура для PathPolyline: морф from → to с прогрессом t, вращение rotation (рад).
-function outline(from, to, t, n, w, h, rotation, time, inset) {
+// pulse (0..1) — «дыхание»: впадины углубляются, а сама фигура чуть расширяется (97 % → 100 %).
+function outline(from, to, t, n, w, h, rotation, time, inset, pulse) {
     const a = radii(from, n, time)
     const b = t > 0 ? radii(to, n, time) : a
     const cx = w / 2, cy = h / 2
     const rx = w / 2 - (inset || 0), ry = h / 2 - (inset || 0)
     const pts = new Array(n + 1)
     for (let i = 0; i < n; ++i) {
-        const r = a[i] + (b[i] - a[i]) * t
+        let r = a[i] + (b[i] - a[i]) * t
+        if (pulse)
+            r = (1 - (1 - r) * (1 + 2.2 * pulse)) * (0.97 + 0.03 * pulse)
         const th = TAU * i / n + (rotation || 0)
         pts[i] = Qt.point(cx + rx * r * Math.cos(th), cy + ry * r * Math.sin(th))
     }

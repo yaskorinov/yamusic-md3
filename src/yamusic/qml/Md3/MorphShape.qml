@@ -21,6 +21,7 @@ Item {
     property int duration: Theme.motion.spatialDefault
     property real overshoot: 1.4
     property real livingSpeed: 1           // скорость «дыхания» blob-фигур, 0 — заморозить
+    property real pulse: 0                 // 0..1 — «дыхание» контура (см. Shapes.outline)
 
     property var _from: shape
     property var _to: shape
@@ -91,7 +92,7 @@ Item {
             joinStyle: ShapePath.RoundJoin
             PathPolyline {
                 path: Shapes.outline(root._from, root._to, root._t, root.samples, root.width, root.height,
-                                     root.angle * Math.PI / 180, root._time, root.strokeWidth / 2)
+                                     root.angle * Math.PI / 180, root._time, root.strokeWidth / 2, root.pulse)
             }
         }
     }
