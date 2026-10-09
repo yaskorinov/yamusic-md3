@@ -11,8 +11,8 @@ Item {
     required property Flickable flickable
     property real wheelStep: 220          // px за щелчок колеса
     property real smoothing: 14           // 1/с: больше — быстрее доводка
-    property real maxBoost: 3             // быстрые щелчки подряд разгоняют шаг до wheelStep × maxBoost
-    property real _boost: 1
+    property real maxBoost: 3             // быстрое вращение колеса разгоняет шаг до wheelStep × maxBoost
+    property real _recent: 0              // «щелчков» за последние ~0,25 с (с затуханием)
     property real _lastWheel: 0
     property bool showScrollBar: true
 
@@ -41,21 +41,28 @@ Item {
         orientation: Qt.Vertical
         onWheel: event => {
             root.userScrolled()
-            const touchpad = event.device.type === PointerDevice.TouchPad || event.pixelDelta.y !== 0
+            // Тачпад — только по типу устройства: на Wayland колесо мыши тоже присылает pixelDelta
+            // (Hyprland ~15 px за щелчок), и проверка pixelDelta превращала мышь в «тачпад» 1:1.
+            const touchpad = event.device.type === PointerDevice.TouchPad
+                             || (event.angleDelta.y === 0 && event.pixelDelta.y !== 0)
             if (touchpad) {
                 smooth.running = false
                 root.flickable.contentY = root.clampY(root.flickable.contentY - event.pixelDelta.y)
                 root._target = root.flickable.contentY
-            } else {
-                // Разгон: щелчки чаще чем раз в ~90 мс увеличивают шаг, пауза сбрасывает.
-                const now = Date.now()
-                const dt = now - root._lastWheel
-                root._lastWheel = now
-                root._boost = dt < 90 ? Math.min(root.maxBoost, root._boost * 1.35) : 1
-                const base = smooth.running ? root._target : root.flickable.contentY
-                root._target = root.clampY(base - event.angleDelta.y / 120 * root.wheelStep * root._boost)
-                smooth.running = true
+                return
             }
+            // Колесо высокого разрешения шлёт щелчок порциями (angleDelta 15–60 вместо 120):
+            // шаг пропорционален доле щелчка, поэтому сумма за щелчок всегда = wheelStep.
+            const notches = event.angleDelta.y / 120
+            // Разгон — по числу щелчков за последние ~0,25 с, а не по интервалу между событиями,
+            // иначе hi-res колесо разгонялось бы уже внутри одного щелчка.
+            const now = Date.now()
+            root._recent = root._recent * Math.exp(-(now - root._lastWheel) / 250) + Math.abs(notches)
+            root._lastWheel = now
+            const boost = Math.max(1, Math.min(root.maxBoost, 1 + (root._recent - 1.5) * 0.5))
+            const base = smooth.running ? root._target : root.flickable.contentY
+            root._target = root.clampY(base - notches * root.wheelStep * boost)
+            smooth.running = true
         }
     }
 
