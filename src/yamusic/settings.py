@@ -17,6 +17,7 @@ SCHEMA: dict[str, tuple[type, object]] = {
     "customSeed": (str, "#FFCC00"),        # seed, когда обложки нет или accentFromCover выключен
     "windowButtons": (bool, False),        # кнопки окна для не-тайлинговых DE
     "nowPlayingBlur": (float, 1.0),        # размытие фона полноэкранного плеера, 0..1
+    "nowPlayingDrift": (float, 0.5),       # «плавание» размытого фона: скорость 0..1, 0 — неподвижен
     # Раскладка
     "rightPanelOpen": (bool, False),
     "rightPanelTab": (str, "queue"),       # queue | lyrics

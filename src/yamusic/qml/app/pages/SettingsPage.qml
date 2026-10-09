@@ -91,6 +91,21 @@ Page {
                 onMoved: v => Settings.nowPlayingBlur = Math.round(v * 20) / 20
             }
         }
+        SettingRow {
+            title: "Плавание фона плеера"
+            description: Settings.nowPlayingDrift > 0
+                ? "Размытая обложка медленно перетекает, пока играет музыка"
+                : "Выключено — фон неподвижен"
+            Slider {
+                width: 220
+                from: 0
+                to: 1
+                stepSize: 0.05
+                value: Settings.nowPlayingDrift
+                valueText: v => v > 0 ? Math.round(v * 100) + " %" : "выкл"
+                onMoved: v => Settings.nowPlayingDrift = Math.round(v * 20) / 20
+            }
+        }
     }
 
     SettingsCard {
