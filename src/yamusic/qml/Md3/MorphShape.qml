@@ -14,6 +14,9 @@ Item {
     property int samples: 120
     property color color: Theme.primary
     property color strokeColor: "transparent"
+    // true — фигура рисуется белой, а цвет накладывает шейдер (смена цвета = смена uniform, без
+    // перестройки геометрии CurveRenderer). false — для белых масок: слой и шейдер не нужны.
+    property bool tinted: strokeWidth === 0
     property real strokeWidth: 0
     property int duration: Theme.motion.spatialDefault
     property real overshoot: 1.4
@@ -32,7 +35,12 @@ Item {
         morph.restart()
     }
 
-    onShapeChanged: morphTo(shape)
+    // При создании привязка `shape` срабатывает после значения по умолчанию ("circle"), и без этой
+    // проверки каждая фигура полсекунды морфилась из круга — ~0,35 мс/кадр на фигуру, и так при
+    // каждом появлении строки в списке (прокрутка, смена трека).
+    property bool _ready: false
+    Component.onCompleted: { _from = shape; _to = shape; _t = 0; _ready = true }
+    onShapeChanged: if (_ready) morphTo(shape)
 
     implicitWidth: 48
     implicitHeight: 48
@@ -55,10 +63,18 @@ Item {
 
     Shape {
         anchors.fill: parent
+        z: -1   // под вложенными элементами (иконка, инициалы)
         preferredRendererType: Shape.CurveRenderer
+        // Слой только у самой фигуры: иначе шейдер окрашивал бы и вложенные иконки/текст.
+        layer.enabled: root.tinted && root.visible
+        layer.smooth: true
+        layer.effect: ShaderEffect {
+            property color tint: root.color
+            fragmentShader: Qt.resolvedUrl("shaders/tint.frag.qsb")
+        }
 
         ShapePath {
-            fillColor: root.color
+            fillColor: root.tinted ? "white" : root.color
             strokeColor: root.strokeColor
             strokeWidth: root.strokeWidth
             joinStyle: ShapePath.RoundJoin

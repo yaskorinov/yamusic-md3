@@ -164,7 +164,7 @@ Item {
 
         // Панели и громкость
         IconButton {
-            icon: "lyrics"
+            icon: "title"
             checkable: true
             autoToggle: false
             checked: Settings.rightPanelOpen && Settings.rightPanelTab === "lyrics"

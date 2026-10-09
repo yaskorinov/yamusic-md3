@@ -36,7 +36,9 @@ Item {
         case "filled": return checkable && !checked ? Theme.surfaceContainer : Theme.primary
         case "tonal": return checkable && !checked ? Theme.surfaceContainerHighest : Theme.secondaryContainer
         case "outlined": return _selected ? Theme.inverseSurface : "transparent"
-        default: return "transparent"
+        // Выбранная standard-кнопка — с тональной подложкой: одного цвета иконки мало,
+        // при неудачной палитре primary почти не отличается от fgSurfaceVariant.
+        default: return _selected ? Theme.secondaryContainer : "transparent"
         }
     }
     readonly property color _contentColor: {
@@ -46,7 +48,7 @@ Item {
         case "filled": return checkable && !checked ? Theme.fgSurfaceVariant : Theme.fgPrimary
         case "tonal": return checkable && !checked ? Theme.fgSurfaceVariant : Theme.fgSecondaryContainer
         case "outlined": return _selected ? Theme.fgInverseSurface : Theme.fgSurfaceVariant
-        default: return _selected ? Theme.primary : Theme.fgSurfaceVariant
+        default: return _selected ? Theme.fgSecondaryContainer : Theme.fgSurfaceVariant
         }
     }
 

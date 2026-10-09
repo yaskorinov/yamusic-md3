@@ -13,11 +13,13 @@ import locale
 import os
 import random
 import time
+import traceback
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import aiohttp
 import mpv
-from PySide6.QtCore import Property, QObject, Signal, Slot
+from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
 from .aio import AsyncRunner
 from .auth import Auth
@@ -28,6 +30,13 @@ QUALITY = {"lossless": "lossless", "high": "hq", "low": "nq"}
 CODEC_LABEL = {"flac": "FLAC", "flac-mp4": "FLAC", "aac-mp4": "AAC", "aac": "AAC",
                "he-aac-mp4": "HE-AAC", "he-aac": "HE-AAC", "mp3": "MP3"}
 POSITION_EMIT_INTERVAL = 0.2  # с: QML сглаживает прогресс между обновлениями
+PREFETCH_DELAY_MS = 2500
+
+
+def mpv_volume(ui: float) -> float:
+    """Ползунок 0..1 → громкость mpv. Программная громкость mpv кубическая (амплитуда = (vol/100)³),
+    и линейный перенос глушил звук уже ниже ~13 % ползунка. Берём амплитуду = ui²: тихо, но слышно."""
+    return 100 * max(0.0, min(1.0, ui)) ** (2 / 3)
 
 
 class Player(QObject):
@@ -63,6 +72,12 @@ class Player(QObject):
         self._load_token = 0                # отменяет устаревшие ответы resolve
         self._prefetched_for = -1           # индекс очереди, чья ссылка уже стоит в mpv вторым номером
         self._http: aiohttp.ClientSession | None = None
+        # Состояние mpv — из наблюдателей; синхронные запросы к libmpv из GUI-потока блокируются,
+        # пока mpv открывает сетевой поток, и подвешивают анимации (видно на смене темы).
+        self._paused = False
+        self._idle_active = True
+        self._volume = 0.7
+        self._cmd_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mpv-cmd")
 
         # libmpv отказывается работать с не-C LC_NUMERIC, а QGuiApplication выставил локаль из системы
         locale.setlocale(locale.LC_NUMERIC, "C")
@@ -73,9 +88,9 @@ class Player(QObject):
         )
         if os.environ.get("YAMUSIC_AO"):  # тесты: YAMUSIC_AO=null — не играть в колонки
             self._mpv.ao = os.environ["YAMUSIC_AO"]
-        self._mpv.volume = 70
+        self._mpv.volume = mpv_volume(self._volume)
         self._mpv.observe_property("pause", lambda _n, v: self._gui(self._on_pause, v))
-        self._mpv.observe_property("core-idle", lambda _n, v: self._gui(self._on_idle, v))
+        self._mpv.observe_property("idle-active", lambda _n, v: self._gui(self._on_idle, v))
         self._mpv.observe_property("paused-for-cache", lambda _n, v: self._gui(self._on_buffering, v))
         self._mpv.observe_property("time-pos", lambda _n, v: self._gui(self._on_time, v))
         self._mpv.observe_property("duration", lambda _n, v: self._gui(self._on_duration, v))
@@ -85,13 +100,24 @@ class Player(QObject):
     def bind_settings(self, settings: QObject) -> None:
         """Настройки (громкость, качество) — синглтон QML, он появляется после создания движка."""
         self._settings = settings
-        self._mpv.volume = float(settings.volume) * 100
+        self._volume = max(0.0, min(1.0, float(settings.volume)))
+        self._cmd(lambda v=mpv_volume(self._volume): setattr(self._mpv, "volume", v))
         self.volumeChanged.emit()
 
     def _gui(self, fn, *args) -> None:
         self._runner.call_in_gui(lambda: fn(*args))
 
+    def _cmd(self, fn) -> None:
+        """Команда libmpv в отдельном потоке (по порядку). GUI-поток никогда не ждёт mpv."""
+        def run() -> None:
+            try:
+                fn()
+            except Exception:
+                traceback.print_exc()
+        self._cmd_pool.submit(run)
+
     def shutdown(self) -> None:
+        self._cmd_pool.shutdown(wait=True, cancel_futures=True)
         try:
             self._mpv.terminate()
         except Exception:
@@ -162,11 +188,12 @@ class Player(QObject):
         return self._position_ms / self._duration_ms if self._duration_ms > 0 else 0.0
 
     def _get_volume(self) -> float:
-        return float(self._mpv.volume or 0) / 100
+        return self._volume
 
     def _set_volume(self, value: float) -> None:
         value = max(0.0, min(1.0, float(value)))
-        self._mpv.volume = value * 100
+        self._volume = value
+        self._cmd(lambda v=mpv_volume(value): setattr(self._mpv, "volume", v))
         if self._settings is not None:
             self._settings.volume = value
         self.volumeChanged.emit()
@@ -195,7 +222,7 @@ class Player(QObject):
         if value not in ("off", "all", "one") or value == self._repeat:
             return
         self._repeat = value
-        self._mpv.loop_file = "inf" if value == "one" else "no"
+        self._cmd(lambda: setattr(self._mpv, "loop_file", "inf" if value == "one" else "no"))
         self.modeChanged.emit()
         self._prefetch_next(force=True)
 
@@ -227,6 +254,17 @@ class Player(QObject):
         self.queueChanged.emit()
         self._start_current()
 
+    @Slot(QObject)
+    def shuffleFrom(self, model: QObject) -> None:
+        """«Перемешать»: включить shuffle и начать со случайного трека модели."""
+        count = len(model.items()) if hasattr(model, "items") else 0
+        if count == 0:
+            return
+        if not self._shuffle:
+            self._shuffle = True
+            self.modeChanged.emit()
+        self.playFrom(model, random.randrange(count))
+
     @Slot(int)
     def playIndex(self, index: int) -> None:
         if 0 <= index < self._queue.count and index in self._order:
@@ -238,23 +276,23 @@ class Player(QObject):
     def togglePlay(self) -> None:
         if not self._track:
             return
-        if self._mpv.idle_active:          # трек закончился и очередь встала — играть заново
+        if self._idle_active:              # трек закончился и очередь встала — играть заново
             self._start_current()
         else:
-            self._mpv.pause = not self._mpv.pause
+            self._cmd(lambda: self._mpv.cycle("pause"))
 
     @Slot()
     def play(self) -> None:
         if self._track:
-            self._mpv.pause = False
+            self._cmd(lambda: setattr(self._mpv, "pause", False))
 
     @Slot()
     def pause(self) -> None:
-        self._mpv.pause = True
+        self._cmd(lambda: setattr(self._mpv, "pause", True))
 
     @Slot()
     def stop(self) -> None:
-        self._mpv.command("stop")
+        self._cmd(lambda: self._mpv.command("stop"))
 
     @Slot()
     def next(self) -> None:
@@ -282,10 +320,7 @@ class Player(QObject):
     @Slot(int)
     def seekMs(self, ms: int) -> None:
         if self._track:
-            try:
-                self._mpv.seek(max(0, ms) / 1000, reference="absolute")
-            except SystemError:
-                pass
+            self._cmd(lambda: self._mpv.seek(max(0, ms) / 1000, reference="absolute"))
             self._position_ms = max(0, ms)
             self.positionChanged.emit()
 
@@ -329,9 +364,14 @@ class Player(QObject):
             url, codec = result
             self._codec = codec
             self.trackChanged.emit()
-            self._mpv.loadfile(url, "replace")
-            self._mpv.pause = False
-            self._prefetch_next()
+
+            def load() -> None:
+                self._mpv.loadfile(url, "replace")
+                self._mpv.pause = False
+            self._cmd(load)
+            # Следующий трек — через пару секунд: запрос и разбор ответа (чистый Python, держит GIL)
+            # пришлись бы на анимацию смены темы и подвесили бы кадры.
+            QTimer.singleShot(PREFETCH_DELAY_MS, lambda t=token: t == self._load_token and self._prefetch_next())
 
         self._runner.submit(self._resolve(str(track["trackId"])), ready, self._failed)
         self._runner.submit(self._fetch_cover(str(track.get("cover", ""))), self._set_cover_file)
@@ -351,19 +391,26 @@ class Player(QObject):
         def ready(result: tuple[str, str]) -> None:
             if token != self._load_token:
                 return
-            self._drop_queued()
-            self._mpv.playlist_append(result[0])
             self._prefetched_for = index
+
+            def append() -> None:
+                self._drop_queued_sync()
+                self._mpv.playlist_append(result[0])
+            self._cmd(append)
 
         self._runner.submit(self._resolve(str(track["trackId"])), ready, lambda e: None)
 
     def _drop_queued(self) -> None:
+        self._prefetched_for = -1
+        self._cmd(self._drop_queued_sync)
+
+    def _drop_queued_sync(self) -> None:
+        """Убрать из плейлиста mpv всё после текущего (поток mpv-cmd)."""
         try:
             while int(self._mpv.playlist_count or 0) > 1 + int(self._mpv.playlist_pos or 0):
                 self._mpv.playlist_remove(int(self._mpv.playlist_count) - 1)
         except (SystemError, TypeError):
             pass
-        self._prefetched_for = -1
 
     async def _resolve(self, track_id: str) -> tuple[str, str]:
         client = self._auth.client
@@ -416,9 +463,11 @@ class Player(QObject):
             self.coverFileChanged.emit()
 
     def _on_pause(self, paused) -> None:
+        self._paused = bool(paused)
         self._update_playing()
 
     def _on_idle(self, idle) -> None:
+        self._idle_active = bool(idle)
         self._update_playing()
 
     def _on_buffering(self, value) -> None:
@@ -427,7 +476,7 @@ class Player(QObject):
             self.stateChanged.emit()
 
     def _update_playing(self) -> None:
-        playing = bool(self._track) and not bool(self._mpv.pause) and not bool(self._mpv.idle_active)
+        playing = bool(self._track) and not self._paused and not self._idle_active
         if playing != self._playing:
             self._playing = playing
             self.stateChanged.emit()
@@ -456,7 +505,7 @@ class Player(QObject):
             return
         self._pos = nxt
         self._prefetched_for = -1
-        self._mpv.playlist_remove(0)
+        self._cmd(lambda: self._mpv.playlist_remove(0))
         self.queueChanged.emit()
         self._set_track(self._queue.get(self.currentIndex))
         self._runner.submit(self._fetch_cover(self.cover), self._set_cover_file)

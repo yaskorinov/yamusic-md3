@@ -5,6 +5,9 @@ import ".."
 
 TrackListPage {
     title: "Мне нравится"
+    overline: "КОЛЛЕКЦИЯ"
+    heroIcon: "favorite"
+    heroShape: "clover4"
     subtitle: Auth.state !== "signedIn" ? "Треки, которые вы отметили"
             : Library.liked.loading && Library.liked.count === 0 ? "Загружаем…"
             : Library.liked.count + " " + plural(Library.liked.count, "трек", "трека", "треков")

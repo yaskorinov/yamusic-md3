@@ -78,6 +78,12 @@ class DictListModel(QAbstractListModel):
     def count(self) -> int:
         return len(self._items)
 
+    # Здесь, а не в TrackListModel: Property в подклассе с notify на сигнал базового класса
+    # даёт битый метаобъект PySide (segfault в QMetaProperty::notifySignalIndex).
+    @Property(int, notify=countChanged)
+    def totalDurationMs(self) -> int:
+        return sum(int(i.get("durationMs") or 0) for i in self._items)
+
     def _get_loading(self) -> bool:
         return self._loading
 

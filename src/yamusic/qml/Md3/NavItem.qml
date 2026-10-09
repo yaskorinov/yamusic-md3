@@ -14,7 +14,7 @@ Item {
     property real labelWidth: 180         // фиксированная: при анимации ширины текст не переносится и не «прыгает» многоточием
     property string trailingIcon
     property color trailingColor: Theme.primary
-    property alias imageSource: thumb.source
+    property string imageSource
 
     signal clicked()
 
@@ -40,24 +40,28 @@ Item {
             anchors.fill: parent
             radius: 8
             color: Theme.primary
-            scale: root.selected && thumb.source == "" ? 1 : 0.4
-            opacity: root.selected && thumb.source == "" ? 1 : 0
+            scale: root.selected && root.imageSource === "" ? 1 : 0.4
+            opacity: root.selected && root.imageSource === "" ? 1 : 0
             Behavior on scale { NumberAnimation { duration: Theme.motion.spatialFast; easing.type: Easing.OutBack; easing.overshoot: 2 } }
             Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsFast } }
         }
         Icon {
             anchors.centerIn: parent
-            visible: thumb.source == ""
+            visible: root.imageSource === ""
             name: root.icon
             size: 20
             fill: root.selected ? 1 : 0
             color: root.selected ? Theme.fgPrimary : Theme.fgSurfaceVariant
         }
-        MorphImage {
-            id: thumb
+        // Обложка (плейлисты) создаётся только при наличии картинки: скрытый MorphImage
+        // всё равно участвовал в каждом кадре перекраски темы.
+        Loader {
             anchors.fill: parent
-            visible: source != ""
-            shape: root.selected ? "cookie9" : "softSquare"
+            active: root.imageSource !== ""
+            sourceComponent: MorphImage {
+                source: root.imageSource
+                shape: root.selected ? "cookie9" : "softSquare"
+            }
         }
     }
 

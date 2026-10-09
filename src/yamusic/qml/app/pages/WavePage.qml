@@ -68,22 +68,16 @@ Page {
             Layout.alignment: Qt.AlignHCenter
             spacing: 10
             Label { text: group.modelData.name; type: "titleMedium"; color: Theme.fgSurfaceVariant }
-            Flow {
-                Layout.fillWidth: true
-                spacing: 8
-                Repeater {
-                    model: group.modelData.items
-                    Chip {
-                        required property string modelData
-                        required property int index
-                        text: modelData
-                        selected: (page.picks[group.modelData.name] ?? -1) === index
-                        onClicked: {
-                            const p = Object.assign({}, page.picks)
-                            p[group.modelData.name] = selected ? -1 : index
-                            page.picks = p
-                        }
-                    }
+            // Connected button group (MD3 Expressive), как «Качество звука» в настройках.
+            // Повторный клик по выбранному варианту снимает выбор («любое»).
+            ButtonGroup {
+                model: group.modelData.items
+                autoSelect: false
+                currentIndex: page.picks[group.modelData.name] ?? -1
+                onActivated: i => {
+                    const p = Object.assign({}, page.picks)
+                    p[group.modelData.name] = p[group.modelData.name] === i ? -1 : i
+                    page.picks = p
                 }
             }
         }

@@ -39,6 +39,7 @@ Item {
         layer.enabled: true
         layer.smooth: true
         color: "white"
+        tinted: false   // белая маска: шейдер окраски не нужен
     }
 
     MultiEffect {

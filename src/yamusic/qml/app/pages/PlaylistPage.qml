@@ -13,6 +13,8 @@ TrackListPage {
     property string cover
 
     title: playlistTitle
+    overline: "ПЛЕЙЛИСТ"
+    heroImage: cover
     subtitle: model && !(model.loading && model.count === 0) ? model.count + " " + plural(model.count) : ""
     model: Library.playlistTracks(uid, kind)
     likedMarks: true

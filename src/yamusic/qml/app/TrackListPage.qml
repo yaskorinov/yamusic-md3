@@ -17,9 +17,19 @@ Item {
     property string emptyTitle: "Здесь пусто"
     property string emptyText: ""
     property Component headerExtra: null       // доп. содержимое шапки (кнопки и т. п.)
+    // Шапка-«герой»: обложка + надзаголовок + название + «N треков · длительность» + Слушать/Перемешать
+    property string overline                   // «ПЛЕЙЛИСТ», «КОЛЛЕКЦИЯ»
+    property string heroImage                  // обложка (url); если пусто — фигура с иконкой
+    property string heroIcon: "queue_music"
+    property var heroShape: "cookie9"
     readonly property bool scrolled: list.contentY - list.originY > 48
 
     signal trackActivated(int row)
+
+    function _duration(ms) {
+        const m = Math.round(ms / 60000)
+        return m >= 60 ? Math.floor(m / 60) + " ч " + (m % 60) + " мин" : m + " мин"
+    }
 
     ListView {
         id: list
@@ -45,35 +55,94 @@ Item {
             function onModelReset() { list.userScrolled = false; list.keepTop() }
         }
 
-        header: ColumnLayout {
+        header: Item {
             width: list.width
-            spacing: 4
+            implicitHeight: hero.implicitHeight + 40
             onImplicitHeightChanged: list.keepTop()
-            Item { Layout.preferredHeight: 8 }
-            Label {
+
+            RowLayout {
+                id: hero
                 visible: page.showHeader
-                Layout.fillWidth: true
-                Layout.leftMargin: 16
-                text: page.title
-                type: "displaySmall"
-                weight: 600
+                x: 16
+                y: 8
+                width: parent.width - 32
+                spacing: 28
+
+                // Обложка или фигура с иконкой
+                Item {
+                    Layout.preferredWidth: page.width > 760 ? 184 : 128
+                    Layout.preferredHeight: Layout.preferredWidth
+                    Layout.alignment: Qt.AlignTop
+                    MorphImage {
+                        anchors.fill: parent
+                        visible: page.heroImage !== ""
+                        source: page.heroImage.replace("200x200", "400x400")
+                        shape: "softSquare"
+                    }
+                    MorphShape {
+                        anchors.fill: parent
+                        visible: page.heroImage === ""
+                        shape: page.heroShape
+                        color: Theme.primaryContainer
+                        Icon {
+                            anchors.centerIn: parent
+                            name: page.heroIcon
+                            size: parent.width * 0.38
+                            fill: 1
+                            color: Theme.fgPrimaryContainer
+                        }
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignBottom
+                    spacing: 4
+                    Label {
+                        visible: page.overline !== ""
+                        text: page.overline
+                        type: "labelLarge"
+                        color: Theme.primary
+                        font.letterSpacing: 1.2
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: page.title
+                        type: page.width > 760 ? "displayMedium" : "displaySmall"
+                        weight: 700
+                    }
+                    Label {
+                        visible: text !== ""
+                        Layout.fillWidth: true
+                        text: page.subtitle + (page.model && page.model.totalDurationMs > 0 && page.subtitle !== ""
+                                               ? "  ·  " + page._duration(page.model.totalDurationMs) : "")
+                        type: "bodyLarge"
+                        color: Theme.fgSurfaceVariant
+                    }
+                    RowLayout {
+                        Layout.topMargin: 14
+                        spacing: 12
+                        visible: page.model !== null && page.model.count > 0
+                        Button {
+                            text: "Слушать"
+                            icon: "play_arrow"
+                            size: "m"
+                            onClicked: Player.playFrom(page.model, 0)
+                        }
+                        Button {
+                            text: "Перемешать"
+                            icon: "shuffle"
+                            style: "tonal"
+                            size: "m"
+                            onClicked: Player.shuffleFrom(page.model)
+                        }
+                        Loader {
+                            active: page.headerExtra !== null
+                            sourceComponent: page.headerExtra
+                        }
+                    }
+                }
             }
-            Label {
-                visible: page.subtitle !== ""
-                Layout.fillWidth: true
-                Layout.leftMargin: 16
-                text: page.subtitle
-                type: "bodyLarge"
-                color: Theme.fgSurfaceVariant
-            }
-            Loader {
-                Layout.fillWidth: true
-                Layout.leftMargin: 16
-                Layout.topMargin: 12
-                active: page.headerExtra !== null
-                sourceComponent: page.headerExtra
-            }
-            Item { Layout.preferredHeight: 16 }
         }
 
         delegate: TrackRow {

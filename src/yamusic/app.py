@@ -66,6 +66,9 @@ def load_fonts() -> None:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv if argv is None else argv
     args = parse_args(argv[1:])
+    # GIL: фоновые потоки (asyncio: разбор ответов API; расчёт темы) держат его до 5 мс подряд,
+    # и GUI-поток на это время замирает (видно как рывки анимаций). 1 мс — отзывчивее.
+    sys.setswitchinterval(0.001)
     # Простой драйвер анимаций тикает таймером ~60 Гц вместо vsync: на 144 Гц всё дёргается.
     os.environ.pop("QSG_USE_SIMPLE_ANIMATION_DRIVER", None)
     if args.debug_wheel:  # QT_LOGGING_RULES пользователя глушит console.log

@@ -57,7 +57,7 @@ Item {
         layer.enabled: root.animating || root.reveal < 1
         MorphShape {
             id: blob
-            readonly property real r: 28 + (root.maxRadius - 28) * root.reveal
+            readonly property real r: 24 + (root.maxRadius - 24) * root.reveal
             x: root.origin.x - r
             y: root.origin.y - r
             width: 2 * r
@@ -65,13 +65,15 @@ Item {
             duration: 650
             overshoot: 1.1
             color: "white"
+            tinted: false
         }
     }
 
-    // Содержимое
+    // Содержимое (гаснет на последней трети сворачивания — без «обрубка» обложки в конце)
     Item {
         id: content
         anchors.fill: parent
+        opacity: Math.min(1, root.reveal / 0.3)
         layer.enabled: root.reveal < 1
         layer.effect: MultiEffect {
             maskEnabled: true
@@ -82,23 +84,28 @@ Item {
 
         // Фон: размытая обложка + вуаль цвета темы
         Rectangle { anchors.fill: parent; color: Theme.surface }
+        // Обложка 12×12, растянутая на окно: билинейное масштабирование само даёт мягкий градиент,
+        // MultiEffect только доразмывает. Края вынесены за окно — у размытия они тёмные/прозрачные.
         Image {
             id: bgCover
             anchors.fill: parent
-            source: Player.cover.replace("400x400", "1000x1000")
+            source: Player.cover
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
+            smooth: true
             visible: false
-            sourceSize: Qt.size(400, 400)   // всё равно размывается — меньше памяти и быстрее
+            sourceSize: Qt.size(12, 12)
         }
         MultiEffect {
             anchors.fill: parent
+            anchors.margins: -120
             source: bgCover
             visible: bgCover.status === Image.Ready
+            autoPaddingEnabled: false
             blurEnabled: true
             blurMax: 64
             blur: 1.0
-            saturation: 0.15
+            saturation: 0.1
         }
         Rectangle {
             anchors.fill: parent
@@ -119,7 +126,7 @@ Item {
             IconButton { icon: "keyboard_arrow_down"; style: "tonal"; onClicked: root.hide() }
             Item { Layout.fillWidth: true }
             ButtonGroup {
-                model: [{ icon: "lyrics" }, { icon: "queue_music" }]
+                model: [{ icon: "title" }, { icon: "queue_music" }]
                 autoSelect: false
                 currentIndex: root.tab === "lyrics" ? 0 : 1
                 onActivated: i => root.tab = i === 0 ? "lyrics" : "queue"
@@ -311,7 +318,7 @@ Item {
                     anchors.centerIn: parent
                     width: Math.min(parent.width, 360)
                     visible: root.tab === "lyrics"
-                    icon: "lyrics"
+                    icon: "title"
                     shape: "flower6"
                     title: "Текст пока недоступен"
                     text: "Синхронный текст будет появляться здесь для играющего трека"

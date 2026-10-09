@@ -226,7 +226,7 @@ Window {
                         spacing: 12
                         IconButton { icon: "favorite"; checkable: true }
                         IconButton { icon: "favorite"; checkable: true; style: "filled" }
-                        IconButton { icon: "lyrics"; checkable: true; checked: true; style: "tonal" }
+                        IconButton { icon: "title"; checkable: true; checked: true; style: "tonal" }
                         IconButton { icon: "queue_music"; style: "outlined" }
                         IconButton { icon: "bedtime"; checkable: true; style: "outlined" }
                         IconButton { icon: "skip_next"; style: "filled"; size: "m"; widthMode: "wide" }
@@ -241,7 +241,7 @@ Window {
                         ButtonGroup { model: ["Normal", "Circular"] }
                         ButtonGroup { model: ["Bars", "Wave"]; currentIndex: 1; showCheck: true }
                         ButtonGroup {
-                            model: [{ icon: "photo" }, { icon: "lyrics" }, { icon: "queue_music" }, { icon: "bedtime" }, { icon: "tune" }]
+                            model: [{ icon: "photo" }, { icon: "title" }, { icon: "queue_music" }, { icon: "bedtime" }, { icon: "tune" }]
                             currentIndex: 1
                         }
                     }

@@ -21,7 +21,7 @@ Item {
     property bool current: false       // играет сейчас (этап 4)
     property bool wide: width > 720
 
-    signal activated()                 // двойной клик — воспроизвести
+    signal activated()                 // клик — воспроизвести
 
     implicitHeight: 64
 
@@ -128,6 +128,6 @@ Item {
     StateLayer {
         anchors.fill: parent
         radius: Theme.shape.large
-        onDoubleClicked: root.activated()
+        onClicked: root.activated()
     }
 }

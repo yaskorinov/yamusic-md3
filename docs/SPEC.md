@@ -122,6 +122,20 @@ src/yamusic/
 - Тесты без звука: `YAMUSIC_AO=null`. libmpv требует `LC_NUMERIC=C`.
 - Синглтоны-экземпляры регистрировать ДО создания QQmlApplicationEngine — иначе ломается весь QML.
 
+## Производительность (уроки)
+
+- `MorphShape` при создании не морфится (иначе каждая фигура полсекунды пересчитывала путь из круга —
+  ~7 мс/кадр на 20 обложек при каждом появлении строк в списке).
+- `MorphShape` рисуется белым, цвет — шейдер `Md3/shaders/tint.frag(.qsb)` на слое самой Shape:
+  CurveRenderer при смене `fillColor` перестраивает геометрию (≈0,15 мс на фигуру за кадр перекраски).
+  Пересборка шейдера: `/usr/lib/qt6/bin/qsb --glsl "100 es,120,150" --hlsl 50 --msl 12 -o tint.frag.qsb tint.frag`
+  (qsb из пакета qt6-shadertools; в pyside6-essentials его нет).
+- Все вызовы libmpv — в потоке `mpv-cmd`; состояние — из наблюдателей. Синхронный вызов из GUI
+  подвешивает кадры, пока mpv открывает сетевой поток.
+- `sys.setswitchinterval(0.001)`: фоновый Python иначе держит GIL до 5 мс и GUI-поток ждёт.
+- Свойство-`Property` в подклассе с `notify` на сигнал базового класса — segfault PySide; объявлять в базовом.
+- Замер стоимости перекраски: `QT_LOGGING_RULES="qt.scenegraph.time.renderloop=true"` → `animations=N ms`.
+
 ## Разработка
 
 ```bash

@@ -40,14 +40,18 @@ ColumnLayout {
 
     Label {
         Layout.alignment: Qt.AlignHCenter
+        Layout.fillWidth: true
         Layout.maximumWidth: 420
         text: root.title
+        wrapMode: Text.WordWrap
+        elide: Text.ElideNone
         type: "titleLarge"
         horizontalAlignment: Text.AlignHCenter
     }
     Label {
         visible: root.text !== ""
         Layout.alignment: Qt.AlignHCenter
+        Layout.fillWidth: true
         Layout.maximumWidth: 420
         text: root.text
         type: "bodyMedium"

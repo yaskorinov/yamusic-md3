@@ -17,7 +17,7 @@ Surface {
         RowLayout {
             Layout.fillWidth: true
             ButtonGroup {
-                model: [{ text: "Очередь", icon: "queue_music" }, { text: "Текст", icon: "lyrics" }]
+                model: [{ text: "Очередь", icon: "queue_music" }, { text: "Текст", icon: "title" }]
                 autoSelect: false
                 currentIndex: Settings.rightPanelTab === "lyrics" ? 1 : 0
                 onActivated: i => Settings.rightPanelTab = i === 1 ? "lyrics" : "queue"
@@ -71,7 +71,7 @@ Surface {
                 anchors.centerIn: parent
                 width: Math.min(parent.width, 280)
                 visible: Settings.rightPanelTab === "lyrics"
-                icon: "lyrics"
+                icon: "title"
                 shape: "flower6"
                 title: "Нет текста"
                 text: "Синхронный текст покажется здесь для играющего трека"
