@@ -89,15 +89,24 @@ Item {
             anim.complete()
         _out = from
         from = from ?? dummy
-        const dx = kind === "forward" ? 48 : kind === "back" ? -48 : 0
+        // Разделы (fade through): новая страница всплывает снизу и чуть «дорастает» до размера.
+        // Вглубь/назад (shared axis X): страницы едут по горизонтали навстречу друг другу.
+        const axis = kind === "fade" ? "y" : "x"
+        const d = kind === "forward" ? 140 : kind === "back" ? -140 : 72
         outFade.target = from
-        outSlide.target = from
-        outSlide.to = -dx / 2
+        outMove.target = from
+        outMove.property = axis
+        outMove.to = kind === "fade" ? -24 : -d / 2
+        outScale.target = from
+        outScale.to = kind === "fade" ? 0.97 : 1
         inFade.target = to
-        inSlide.target = to
-        inSlide.from = dx
+        inMove.target = to
+        inMove.property = axis
+        inMove.from = d
         inScale.target = to
-        inScale.from = kind === "fade" ? 0.96 : 1
+        inScale.from = kind === "fade" ? 0.94 : 1
+        to.x = 0
+        to.y = 0
         to.visible = true
         to.z = 1
         from.z = 0
@@ -114,21 +123,22 @@ Item {
     ParallelAnimation {
         id: anim
 
-        NumberAnimation { id: outFade; property: "opacity"; to: 0; duration: 90; easing.type: Easing.Linear }
+        NumberAnimation { id: outFade; property: "opacity"; to: 0; duration: 160; easing.type: Easing.OutCubic }
         NumberAnimation {
-            id: outSlide; property: "x"; duration: Theme.motion.spatialDefault
-            easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized
+            id: outMove; duration: 300
+            easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasizedAccelerate
         }
+        NumberAnimation { id: outScale; property: "scale"; duration: 300; easing.type: Easing.OutCubic }
         SequentialAnimation {
-            PauseAnimation { duration: 70 }
+            PauseAnimation { duration: 60 }
             ParallelAnimation {
-                NumberAnimation { id: inFade; property: "opacity"; from: 0; to: 1; duration: 210; easing.type: Easing.OutCubic }
+                NumberAnimation { id: inFade; property: "opacity"; from: 0; to: 1; duration: 260; easing.type: Easing.OutCubic }
                 NumberAnimation {
-                    id: inSlide; property: "x"; to: 0; duration: Theme.motion.spatialDefault
+                    id: inMove; to: 0; duration: 560
                     easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasizedDecelerate
                 }
                 NumberAnimation {
-                    id: inScale; property: "scale"; to: 1; duration: Theme.motion.spatialDefault
+                    id: inScale; property: "scale"; to: 1; duration: 560
                     easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasizedDecelerate
                 }
             }
@@ -138,6 +148,8 @@ Item {
             if (root._out) {
                 root._out.visible = false
                 root._out.x = 0
+                root._out.y = 0
+                root._out.scale = 1
             }
             for (const item of root._leaving)
                 item.destroy()

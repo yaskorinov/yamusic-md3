@@ -4,9 +4,11 @@ import QtQuick
 Rectangle {
     property string level: "container"   // lowest | low | container | high | highest | surface
     property int elevation: 0
+    property real translucency: 0          // 0..1 — сквозь поверхность виден фон окна
 
     radius: Theme.shape.extraLarge
-    color: ({
+    color: Qt.alpha(_base, 1 - translucency)
+    readonly property color _base: ({
         lowest: Theme.surfaceContainerLowest,
         low: Theme.surfaceContainerLow,
         container: Theme.surfaceContainer,

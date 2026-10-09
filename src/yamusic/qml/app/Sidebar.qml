@@ -21,7 +21,6 @@ Item {
     readonly property real labelWidth: expandedWidth - 2 * margin - iconInset - 28 - 8 - 12
 
     readonly property var sections: [
-        { name: "home", icon: "home", text: "Главная" },
         { name: "search", icon: "search", text: "Поиск" },
         { name: "wave", icon: "graphic_eq", text: "Моя волна" },
         { name: "liked", icon: "favorite", text: "Мне нравится" }

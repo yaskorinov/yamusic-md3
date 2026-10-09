@@ -8,7 +8,7 @@ import "app"
 Window {
     id: win
 
-    property string startPage: "home"     // --set startPage=settings (для разработки)
+    property string startPage: "wave"     // --set startPage=settings (для разработки)
 
     width: Settings.windowWidth
     height: Settings.windowHeight
@@ -37,6 +37,19 @@ Window {
 
         Rectangle { anchors.fill: parent; color: Theme.surface }
 
+        // Атмосферный фон: размытая обложка за всем окном. Сайдбар лежит прямо на ней,
+        // панели контента полупрозрачны — там свечение слабее.
+        CoverBackdrop {
+            id: ambient
+            anchors.fill: parent
+            visible: Settings.ambientBackground && Player.cover !== "" && ready
+            opacity: Theme.dark ? 0.3 : 0.35
+            source: Player.cover
+            blur: 1
+            flow: Settings.nowPlayingDrift
+            running: visible && Player.playing && !nowPlaying.open
+        }
+
         RowLayout {
             anchors.fill: parent
             anchors.margins: 8
@@ -57,6 +70,7 @@ Window {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 level: "container"
+                translucency: ambient.visible ? 0.3 : 0
                 clip: true
 
                 TopBar {
@@ -78,7 +92,6 @@ Window {
                     Router {
                         id: router
                         pages: ({
-                            home: Qt.resolvedUrl("app/pages/HomePage.qml"),
                             search: Qt.resolvedUrl("app/pages/SearchPage.qml"),
                             wave: Qt.resolvedUrl("app/pages/WavePage.qml"),
                             liked: Qt.resolvedUrl("app/pages/LikedPage.qml"),

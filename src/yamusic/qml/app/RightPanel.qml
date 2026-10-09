@@ -8,6 +8,7 @@ Surface {
     id: root
 
     level: "container"
+    translucency: Settings.ambientBackground && Player.cover !== "" ? 0.3 : 0
 
     ColumnLayout {
         anchors.fill: parent

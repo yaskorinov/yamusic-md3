@@ -92,10 +92,10 @@ Page {
             }
         }
         SettingRow {
-            title: "Плавание фона плеера"
+            title: "Плавание размытия"
             description: Settings.nowPlayingDrift > 0
-                ? "Размытая обложка медленно перетекает, пока играет музыка"
-                : "Выключено — фон неподвижен"
+                ? "Размытые пятна цвета медленно переливаются, пока играет музыка"
+                : "Выключено — размытие неподвижно"
             Slider {
                 width: 220
                 from: 0
@@ -105,6 +105,11 @@ Page {
                 valueText: v => v > 0 ? Math.round(v * 100) + " %" : "выкл"
                 onMoved: v => Settings.nowPlayingDrift = Math.round(v * 20) / 20
             }
+        }
+        SettingRow {
+            title: "Атмосферный фон"
+            description: "Размытая обложка играющего трека за всем окном — слабым цветным свечением"
+            Switch { checked: Settings.ambientBackground; onToggled: c => Settings.ambientBackground = c }
         }
     }
 

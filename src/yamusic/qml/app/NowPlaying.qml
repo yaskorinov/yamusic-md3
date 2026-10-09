@@ -97,62 +97,13 @@ Item {
 
         // Фон: размытая обложка + вуаль цвета темы
         Rectangle { anchors.fill: parent; color: Theme.surface }
-        // Размытие (Settings.nowPlayingBlur, 0..1) — в два приёма: обложка грузится уменьшенной
-        // (на максимуме 12×12 — билинейное растяжение само даёт мягкий градиент), MultiEffect доразмывает.
-        // Края вынесены за окно — у размытия они тёмные/прозрачные.
-        Image {
-            id: bgCover
-            readonly property real blur: Math.max(0, Math.min(1, Settings.nowPlayingBlur))
+        // Размытие и «плавание» — из настроек (см. CoverBackdrop)
+        CoverBackdrop {
             anchors.fill: parent
-            source: Player.cover.replace("400x400", blur < 0.5 ? "800x800" : "400x400")
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            smooth: true
-            visible: false
-            sourceSize: {
-                const side = Math.round(12 + 788 * Math.pow(1 - blur, 3))
-                return Qt.size(side, side)
-            }
-        }
-        // «Плавание» (Settings.nowPlayingDrift): размытый слой медленно вращается и дрейфует,
-        // под ним зеркальный слой плывёт навстречу — пятна цвета перетекают. Двигаются только
-        // готовые слои (трансформации), блюр не пересчитывается. Пока музыка на паузе — стоит.
-        Item {
-            id: drift
-            readonly property real speed: Math.max(0, Math.min(1, Settings.nowPlayingDrift))
-            readonly property bool moving: speed > 0
-            property real t: 0
-            anchors.fill: parent
-            visible: bgCover.status === Image.Ready
-
-            FrameAnimation {
-                running: drift.moving && root.visible && Player.playing
-                onTriggered: drift.t += frameTime * (0.25 + 1.75 * drift.speed)
-            }
-
-            Repeater {
-                // второй, зеркальный слой нужен только размытому фону: чёткая обложка поверх себя — каша
-                model: drift.moving && bgCover.blur > 0.3 ? 2 : 1
-                MultiEffect {
-                    required property int index
-                    readonly property bool mirror: index === 1
-                    // При движении слой больше окна: при любом повороте и сдвиге края не видны
-                    readonly property real side: drift.moving ? Math.hypot(root.width, root.height) * 1.3 : 0
-                    width: drift.moving ? side : root.width + (bgCover.blur > 0 ? 240 : 0)
-                    height: drift.moving ? side : root.height + (bgCover.blur > 0 ? 240 : 0)
-                    x: (root.width - width) / 2 + (drift.moving ? 0.06 * root.width * Math.sin(drift.t * (mirror ? 0.13 : 0.17) + index) : 0)
-                    y: (root.height - height) / 2 + (drift.moving ? 0.06 * root.height * Math.cos(drift.t * (mirror ? 0.11 : 0.15) + 2 * index) : 0)
-                    rotation: drift.moving ? (mirror ? -1 : 1) * drift.t * (mirror ? 4 : 6) : 0
-                    transform: Scale { origin.x: width / 2; xScale: mirror ? -1 : 1 }
-                    opacity: mirror ? 0.5 : 1
-                    source: bgCover
-                    autoPaddingEnabled: false
-                    blurEnabled: bgCover.blur > 0
-                    blurMax: 64
-                    blur: bgCover.blur
-                    saturation: 0.1 + 0.4 * (1 - bgCover.blur)
-                }
-            }
+            source: Player.cover
+            blur: Settings.nowPlayingBlur
+            flow: Settings.nowPlayingDrift
+            running: root.visible && Player.playing
         }
         Rectangle {
             anchors.fill: parent
