@@ -39,13 +39,12 @@ Window {
 
         // Атмосферный фон: размытая обложка за всем окном. Сайдбар лежит прямо на ней,
         // панели контента полупрозрачны — там свечение слабее.
-        CoverBackdrop {
+        AmbientBackdrop {
             id: ambient
             anchors.fill: parent
-            visible: Settings.ambientBackground && Player.cover !== "" && ready
+            visible: Settings.ambientBackground && Player.cover !== ""
             opacity: Theme.dark ? 0.3 : 0.35
             source: Player.cover
-            blur: 1
             flow: Settings.nowPlayingDrift
             running: visible && Player.playing && !nowPlaying.open
         }

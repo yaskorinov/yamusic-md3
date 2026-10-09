@@ -22,6 +22,9 @@ Item {
     // Если задан ThemeWipe — схема меняется «шторкой» в сторону wipeDirection (+1 вправо, -1 влево),
     // иначе — плавной анимацией всех цветов.
     property Item wipe: null
+    // Новая схема применена: instant — мгновенно под шторкой, иначе — началась плавная анимация.
+    // По нему синхронно с цветами меняется то, что зависит от обложки (атмосферный фон).
+    signal schemeApplied(bool instant)
     property int wipeDirection: 1
 
     // публичное имя → ключ в ThemeEngine.colors
@@ -107,6 +110,7 @@ Item {
         _toLab = Mix.labMap(ThemeEngine.colors)
         _p = 0
         _anim.restart()
+        schemeApplied(false)
     }
 
     Component.onCompleted: {
@@ -121,6 +125,7 @@ Item {
         _toLab = lab
         _fromLab = lab
         _p = 1
+        schemeApplied(true)
     }
 
     Connections {

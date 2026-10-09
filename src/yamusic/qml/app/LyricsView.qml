@@ -264,7 +264,36 @@ Item {
             }
         }
 
-        transform: Translate { id: shift }
+        // Появление нового текста: строки выплывают снизу волной, начиная от активной
+        property real appear: 0
+        opacity: appear
+        transform: [
+            Translate { id: shift },
+            Translate { y: (1 - line.appear) * root.fontSize * 1.1 }
+        ]
+        Component.onCompleted: Qt.callLater(() => {
+            // к этому моменту activeIndex уже выставлен по позиции плеера
+            const rel = line.index - Math.max(0, root.activeIndex - 2)
+            if (rel < 0 || rel > 14) {        // за пределами видимого — сразу на месте
+                line.appear = 1
+                return
+            }
+            appearAnim.delayMs = 120 + rel * 55
+            appearAnim.start()
+        })
+        SequentialAnimation {
+            id: appearAnim
+            property int delayMs: 0
+            PauseAnimation { duration: appearAnim.delayMs }
+            NumberAnimation {
+                target: line
+                property: "appear"
+                to: 1
+                duration: 650
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: Theme.motion.emphasizedDecelerate
+            }
+        }
 
         Connections {
             target: root
