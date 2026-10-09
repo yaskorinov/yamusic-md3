@@ -96,7 +96,7 @@ Page {
         }
         SettingRow {
             title: "Шаг прокрутки колесом"
-            description: Settings.wheelStep + " px за щелчок; при быстрой прокрутке шаг растёт до ×3"
+            description: Settings.wheelStep + " px за щелчок; при быстрой прокрутке шаг растёт до ×2"
             Slider {
                 width: 220
                 from: 60

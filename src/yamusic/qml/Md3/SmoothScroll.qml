@@ -9,9 +9,9 @@ Item {
     id: root
 
     required property Flickable flickable
-    property real wheelStep: 220          // px за щелчок колеса
+    property real wheelStep: 150          // px за щелчок колеса
     property real smoothing: 14           // 1/с: больше — быстрее доводка
-    property real maxBoost: 3             // быстрое вращение колеса разгоняет шаг до wheelStep × maxBoost
+    property real maxBoost: 2             // быстрое вращение колеса разгоняет шаг до wheelStep × maxBoost
     property real _recent: 0              // «щелчков» за последние ~0,25 с (с затуханием)
     property real _lastWheel: 0
     property bool showScrollBar: true
@@ -66,7 +66,7 @@ Item {
             const now = Date.now()
             root._recent = root._recent * Math.exp(-(now - root._lastWheel) / 250) + Math.abs(notches)
             root._lastWheel = now
-            const boost = Math.max(1, Math.min(root.maxBoost, 1 + (root._recent - 1.5) * 0.5))
+            const boost = Math.max(1, Math.min(root.maxBoost, 1 + (root._recent - 2) * 0.25))
             const base = smooth.running ? root._target : root.flickable.contentY
             root._target = root.clampY(base - notches * root.wheelStep * boost)
             smooth.running = true
@@ -84,7 +84,10 @@ Item {
                 running = false
                 return
             }
-            root.flickable.contentY += d * (1 - Math.exp(-frameTime * root.smoothing))
+            // Целые пиксели: иконки (нативный растеризатор) привязаны к пиксельной сетке, а текст и
+            // картинки — нет; при дробном contentY они «дрожат» друг относительно друга.
+            const step = d * (1 - Math.exp(-frameTime * root.smoothing))
+            root.flickable.contentY = Math.round(root.flickable.contentY + (Math.abs(step) < 1 ? Math.sign(d) : step))
         }
     }
 

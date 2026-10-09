@@ -23,7 +23,7 @@ SCHEMA: dict[str, tuple[type, object]] = {
     "windowWidth": (int, 1280),
     "windowHeight": (int, 800),
     # Поведение
-    "wheelStep": (int, 220),
+    "wheelStep": (int, 150),
 }
 
 

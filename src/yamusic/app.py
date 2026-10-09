@@ -34,6 +34,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--light", action="store_true", help="светлая тема")
     parser.add_argument("--offline", action="store_true", help="не восстанавливать сессию из keyring")
     parser.add_argument("--debug-wheel", action="store_true", help="печатать сырые события колеса мыши")
+    parser.add_argument("--debug-fps", action="store_true", help="счётчик кадров в углу окна")
     parser.add_argument("--size", help="размер окна, ШxВ (по умолчанию — из настроек)")
     parser.add_argument("--config-dir", metavar="DIR",
                         help="каталог настроек (для --screenshot по умолчанию временный, чтобы не трогать настоящие)")
@@ -95,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
     engine.setNetworkAccessManagerFactory(nam_factory)
     engine.addImportPath(str(QML_DIR))
     engine.rootContext().setContextProperty("yamusicDebugWheel", args.debug_wheel)
+    engine.rootContext().setContextProperty("yamusicDebugFps", args.debug_fps)
     app_settings = engine.singletonInstance("YaMusic.Core", "Settings")
     theme_engine = engine.singletonInstance("YaMusic.Core", "ThemeEngine")
     theme_engine.bind_settings(app_settings, app.styleHints())

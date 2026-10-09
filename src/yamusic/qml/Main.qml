@@ -116,6 +116,15 @@ Window {
 
     ResizeEdges { window: win }
 
+    Loader {
+        active: typeof yamusicDebugFps !== "undefined" && yamusicDebugFps
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: 16
+        z: 10000
+        sourceComponent: FpsOverlay {}
+    }
+
     // Навигация мышью «назад» и горячие клавиши
     TapHandler {
         acceptedButtons: Qt.BackButton
