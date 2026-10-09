@@ -16,6 +16,7 @@ from PySide6.QtQuick import QQuickWindow
 from . import icons, settings, theme  # noqa: F401  регистрируют YaMusic.Core
 from .aio import AsyncRunner
 from .auth import Auth
+from .display import prefer_fastest_screen
 from .images import CachingNamFactory
 from .library import Library
 
@@ -82,6 +83,10 @@ def main(argv: list[str] | None = None) -> int:
     QGuiApplication.setOrganizationName("yamusic")
     QGuiApplication.setDesktopFileName("yamusic")
     app = QGuiApplication(argv)
+    # До создания окон: Qt Quick берёт период кадра у основного экрана (см. display.py)
+    screen_note = prefer_fastest_screen(app)
+    if args.debug_fps:
+        print(screen_note, file=sys.stderr)
     load_fonts()
 
     # Сервисы: API живёт в asyncio-потоке, в QML — синглтоны YaMusic.Core.Auth / .Library

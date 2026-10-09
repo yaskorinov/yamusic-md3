@@ -130,6 +130,11 @@ uv run yamusic --size 900x700 --set startPage=settings --screenshot out.png  # �
 - Иконки — только `Text.NativeRendering`: distance-field рендер дырявит заливку (FILL=1) вариативного Material Symbols.
 - Смена темы — одна анимация прогресса в `Theme` (OKLab), расчёт схемы — в пуле потоков (~40 мс Python).
   Компонентам нельзя иметь свою `Behavior on color` без `enabled: !Theme.transitioning` — иначе двойная анимация и рывки.
+- **60 к/с на 144-герцовом мониторе.** Qt Quick берёт период кадра у `primaryScreen()`, а на Wayland основной —
+  первый монитор от композитора (у пользователя 60-герцовый DVI-D-1). Qt считает частые кадры «сломанным vsync» и
+  гоняет анимации таймером 60 Гц. `display.py` при старте делает основным самый быстрый монитор через экспортируемую
+  `QWindowSystemInterface::handlePrimaryScreenChanged` (ctypes). Отключить: `YAMUSIC_KEEP_PRIMARY_SCREEN=1`.
+  Проверка: `--debug-fps` (оверлей) или `QT_LOGGING_RULES="qt.scenegraph.time.renderloop=true"`.
 - В окружении пользователя `QSG_USE_SIMPLE_ANIMATION_DRIVER=1` — анимации от таймера ~60 Гц вместо vsync
   (дёргается на 144 Гц). `app.py` убирает переменную для своего процесса. Прокрутка — только через `SmoothFlickable`.
 - В окружении пользователя `QT_LOGGING_RULES` глушит `console.log`; для отладки: `QT_LOGGING_RULES="qml.debug=true"`.
