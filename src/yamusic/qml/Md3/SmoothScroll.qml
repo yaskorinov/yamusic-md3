@@ -20,6 +20,9 @@ Item {
     readonly property real maxY: flickable.originY + Math.max(0, flickable.contentHeight - flickable.height)
     property real _target: 0
 
+    // --debug-wheel: печатать сырые события колеса
+    readonly property bool debugWheel: typeof yamusicDebugWheel !== "undefined" && yamusicDebugWheel
+
     signal userScrolled()   // колесо, тачпад или индикатор — не программная прокрутка
 
     function clampY(y) { return Math.max(minY, Math.min(maxY, y)) }
@@ -41,10 +44,13 @@ Item {
         orientation: Qt.Vertical
         onWheel: event => {
             root.userScrolled()
-            // Тачпад — только по типу устройства: на Wayland колесо мыши тоже присылает pixelDelta
-            // (Hyprland ~15 px за щелчок), и проверка pixelDelta превращала мышь в «тачпад» 1:1.
-            const touchpad = event.device.type === PointerDevice.TouchPad
-                             || (event.angleDelta.y === 0 && event.pixelDelta.y !== 0)
+            if (root.debugWheel)
+                console.log(`wheel: type=${event.device.type} name="${event.device.name}" phase=${event.phase}`
+                            + ` angle=${event.angleDelta.y} pixel=${event.pixelDelta.y} inverted=${event.inverted}`)
+            // Тачпад узнаём по фазе жеста (Begin/Update/End есть только у пальцевой прокрутки).
+            // Ни тип устройства, ни pixelDelta не надёжны: на Wayland колесо мыши тоже присылает
+            // pixelDelta (~15 px за щелчок), а часть мышей приходит с типом «TouchPad».
+            const touchpad = event.phase !== Qt.NoScrollPhase
             if (touchpad) {
                 smooth.running = false
                 root.flickable.contentY = root.clampY(root.flickable.contentY - event.pixelDelta.y)
@@ -53,7 +59,8 @@ Item {
             }
             // Колесо высокого разрешения шлёт щелчок порциями (angleDelta 15–60 вместо 120):
             // шаг пропорционален доле щелчка, поэтому сумма за щелчок всегда = wheelStep.
-            const notches = event.angleDelta.y / 120
+            // Нет angleDelta — пересчитываем пиксели: Wayland отдаёт 15 px на щелчок.
+            const notches = event.angleDelta.y !== 0 ? event.angleDelta.y / 120 : event.pixelDelta.y / 15
             // Разгон — по числу щелчков за последние ~0,25 с, а не по интервалу между событиями,
             // иначе hi-res колесо разгонялось бы уже внутри одного щелчка.
             const now = Date.now()
