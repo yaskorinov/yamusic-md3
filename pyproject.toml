@@ -6,6 +6,8 @@ requires-python = ">=3.14"
 dependencies = [
     "materialyoucolor>=3.0.4",
     "pyside6-essentials>=6.12",
+    "secretstorage>=3.5.0",
+    "yandex-music[async,crypto,orjson]>=3.2.1",
 ]
 
 [project.scripts]

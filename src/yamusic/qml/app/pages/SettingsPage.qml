@@ -96,12 +96,12 @@ Page {
         }
         SettingRow {
             title: "Шаг прокрутки колесом"
-            description: Settings.wheelStep + " px за щелчок"
+            description: Settings.wheelStep + " px за щелчок; при быстрой прокрутке шаг растёт до ×3"
             Slider {
                 width: 220
-                from: 40
-                to: 240
-                stepSize: 10
+                from: 60
+                to: 480
+                stepSize: 20
                 value: Settings.wheelStep
                 valueText: v => Math.round(v) + " px"
                 onMoved: v => Settings.wheelStep = Math.round(v)

@@ -58,6 +58,7 @@ Row {
                 anchors.centerIn: parent
                 spacing: 6
                 Icon {
+                    tight: true
                     readonly property string n: seg.iconName !== "" ? seg.iconName : (root.showCheck && seg.selected ? "check" : "")
                     visible: n !== ""
                     name: n

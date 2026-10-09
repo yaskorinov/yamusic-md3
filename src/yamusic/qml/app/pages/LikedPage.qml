@@ -1,18 +1,37 @@
 import QtQuick
-import QtQuick.Layouts
 import Md3
+import YaMusic.Core
 import ".."
 
-Page {
+TrackListPage {
     title: "Мне нравится"
-    subtitle: "Треки, которые вы отметили"
+    subtitle: Auth.state !== "signedIn" ? "Треки, которые вы отметили"
+            : Library.liked.loading && Library.liked.count === 0 ? "Загружаем…"
+            : Library.liked.count + " " + plural(Library.liked.count, "трек", "трека", "треков")
+    model: Auth.state === "signedIn" ? Library.liked : null
+    likedMarks: false
+    emptyIcon: "favorite"
+    emptyTitle: "Пока пусто"
+    emptyText: "Отмечайте треки сердечком — они появятся здесь"
 
+    function plural(n, one, few, many) {
+        const m10 = n % 10, m100 = n % 100
+        if (m10 === 1 && m100 !== 11) return one
+        if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few
+        return many
+    }
+
+    // Не вошли — приглашение войти
     EmptyState {
-        Layout.alignment: Qt.AlignHCenter
-        Layout.topMargin: 40
+        anchors.centerIn: parent
+        width: Math.min(parent.width - 64, 420)
+        visible: Auth.state !== "signedIn"
         icon: "favorite"
         shape: "clover4"
-        title: "Пока пусто"
-        text: "После входа здесь появятся треки с вашими лайками"
+        title: "Войдите, чтобы увидеть лайки"
+        text: "Треки с отметкой «Мне нравится» подтянутся из вашего аккаунта"
+        actionText: "Войти"
+        actionIcon: "login"
+        onAction: parent.router.reset("account")
     }
 }

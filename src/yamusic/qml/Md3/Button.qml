@@ -82,6 +82,7 @@ Item {
 
         Icon {
             visible: root.icon !== ""
+            tight: true   // отступы MD3 — от видимой иконки, иначе узкие глифы (logout) «съезжают»
             name: root.icon
             size: root._spec.icon
             fill: root._selected ? 1 : 0

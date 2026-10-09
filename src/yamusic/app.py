@@ -10,10 +10,14 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings, QTimer, QUrl
 from PySide6.QtGui import QFontDatabase, QGuiApplication
-from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterSingletonInstance
 from PySide6.QtQuick import QQuickWindow
 
-from . import settings, theme  # noqa: F401  регистрируют YaMusic.Core
+from . import icons, settings, theme  # noqa: F401  регистрируют YaMusic.Core
+from .aio import AsyncRunner
+from .auth import Auth
+from .images import CachingNamFactory
+from .library import Library
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 QML_DIR = PACKAGE_DIR / "qml"
@@ -28,6 +32,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--delay", type=int, default=1500, help="задержка перед снимком, мс")
     parser.add_argument("--seed-image", metavar="PATH", help="взять цвет темы из картинки")
     parser.add_argument("--light", action="store_true", help="светлая тема")
+    parser.add_argument("--offline", action="store_true", help="не восстанавливать сессию из keyring")
     parser.add_argument("--size", help="размер окна, ШxВ (по умолчанию — из настроек)")
     parser.add_argument("--config-dir", metavar="DIR",
                         help="каталог настроек (для --screenshot по умолчанию временный, чтобы не трогать настоящие)")
@@ -75,7 +80,16 @@ def main(argv: list[str] | None = None) -> int:
     app = QGuiApplication(argv)
     load_fonts()
 
+    # Сервисы: API живёт в asyncio-потоке, в QML — синглтоны YaMusic.Core.Auth / .Library
+    runner = AsyncRunner()
+    auth = Auth(runner)
+    library = Library(runner, auth)
+    qmlRegisterSingletonInstance(Auth, "YaMusic.Core", 1, 0, "Auth", auth)
+    qmlRegisterSingletonInstance(Library, "YaMusic.Core", 1, 0, "Library", library)
+
     engine = QQmlApplicationEngine()
+    nam_factory = CachingNamFactory()  # ссылка должна жить столько же, сколько движок
+    engine.setNetworkAccessManagerFactory(nam_factory)
     engine.addImportPath(str(QML_DIR))
     app_settings = engine.singletonInstance("YaMusic.Core", "Settings")
     theme_engine = engine.singletonInstance("YaMusic.Core", "ThemeEngine")
@@ -101,6 +115,8 @@ def main(argv: list[str] | None = None) -> int:
     engine.load(QUrl.fromLocalFile(str(entry)))
     if not engine.rootObjects():
         return 1
+    if not args.offline:
+        auth.start()
 
     if args.screenshot:
         window: QQuickWindow = engine.rootObjects()[0]
@@ -111,4 +127,6 @@ def main(argv: list[str] | None = None) -> int:
 
         QTimer.singleShot(args.delay, grab)
 
-    return app.exec()
+    code = app.exec()
+    runner.stop()
+    return code

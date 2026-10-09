@@ -40,8 +40,8 @@
 
 1. ✅ **MD3-кит + тема**. Галерея компонентов (`yamusic --gallery`).
 2. ✅ **Каркас приложения**: окно, навигация, роутинг страниц, хранилище настроек.
-3. **Авторизация + API-слой** (асинхронный, в отдельном потоке) + кэш обложек ← следующий.
-4. Плеер (mpv) + очередь + MPRIS + мини-плеер + Now Playing.
+3. ✅ **Авторизация + API-слой** (асинхронный, в отдельном потоке) + кэш обложек.
+4. **Плеер** (mpv) + очередь + MPRIS + мини-плеер + Now Playing ← следующий.
 5. Моя волна, «Мне нравится».
 6. Плейлисты / альбомы / артисты, поиск.
 7. Тексты, офлайн-кэш.
@@ -55,6 +55,13 @@ src/yamusic/
   app.py             QGuiApplication, шрифты, регистрация типов, загрузка QML
   settings.py        Settings (QSettings → ~/.config/yamusic/YaMusic.conf), свойства из SCHEMA
   theme.py           ThemeEngine: схема MD3 из seed/обложки, следует настройкам
+  aio.py             asyncio-цикл в фоновом потоке, колбэки — в GUI-потоке
+  auth.py            Auth: device code (ya.ru/device) / токен, состояние входа
+  tokens.py          токен: Secret Service, если есть связка по умолчанию, иначе файл 0600
+  library.py         Library: плейлисты, «Мне нравится», треки плейлистов (порциями)
+  models.py          TrackListModel / PlaylistListModel (QAbstractListModel)
+  images.py          дисковый кэш картинок для QML (~/.cache/yamusic/YaMusic/images, 512 МБ)
+  icons.py           IconMetrics: оптическое центрирование глифов Material Symbols
   assets/fonts/      Google Sans (OFL), Material Symbols Rounded (Apache 2.0)
   qml/
     Main.qml         главное окно: Sidebar | контент (TopBar, Router, MiniPlayer) | RightPanel
@@ -94,6 +101,15 @@ src/yamusic/
 - **Плеер** пока `app/DemoPlayer.qml` — заглушка с тем же интерфейсом, что будет у Python-плеера.
 - Бесконечные анимации в простое запрещены (держат перерисовку каждый кадр); вращение/волны — только во время игры.
 
+## Вход и API (этап 3)
+
+- Вход: OAuth Device Flow библиотеки `yandex-music` (client_id Android-приложения), код на ya.ru/device,
+  5 минут, опрос раз в 5 с. Запасной путь — вставить токен вручную.
+- Токен: Secret Service только при наличии коллекции по умолчанию (иначе keyring дёргает системный
+  диалог создания связки при каждом запуске), иначе файл в каталоге данных с правами 0600.
+- Все запросы — `AsyncRunner.submit(coro, on_done, on_error)`; смена аккаунта отменяет ответы старых запросов (generation).
+- Обложки: `https://` + `cover_uri.replace("%%", "400x400")`, грузит сам QML `Image` через NAM с дисковым кэшем.
+
 ## Разработка
 
 ```bash
@@ -118,4 +134,9 @@ uv run yamusic --size 900x700 --set startPage=settings --screenshot out.png  # �
   (дёргается на 144 Гц). `app.py` убирает переменную для своего процесса. Прокрутка — только через `SmoothFlickable`.
 - В окружении пользователя `QT_LOGGING_RULES` глушит `console.log`; для отладки: `QT_LOGGING_RULES="qml.debug=true"`.
   Замер кадров при смене обложек: `--set perfLog=true`.
+- Иконки центрируются по фактическому контуру (IconMetrics меряет пиксели в том же кегле и opsz):
+  `FontMetrics.tightBoundingRect` для лигатур вариативного шрифта врёт, а часть глифов (favorite) нарисована выше центра.
+- Иконка рядом с текстом — `Icon { tight: true }`: ширина по видимому контуру, и отступы MD3 (кнопки,
+  чипы, группы) отмеряются от него. Иначе узкие глифы (logout, refresh) дают лишние 2–4 px слева и в зазоре.
+- `ListView` с `header` не сдвигает `contentY`, когда шапка меняет высоту, — см. `keepTop()` в `TrackListPage`.
 - Шрифт иконок `assets/fonts/MaterialSymbolsRounded.ttf` — полный вариативный (15 МБ); перед упаковкой урезать через `pyftsubset`.

@@ -77,7 +77,9 @@ Window {
                         search: Qt.resolvedUrl("app/pages/SearchPage.qml"),
                         wave: Qt.resolvedUrl("app/pages/WavePage.qml"),
                         liked: Qt.resolvedUrl("app/pages/LikedPage.qml"),
-                        settings: Qt.resolvedUrl("app/pages/SettingsPage.qml")
+                        settings: Qt.resolvedUrl("app/pages/SettingsPage.qml"),
+                        account: Qt.resolvedUrl("app/pages/AccountPage.qml"),
+                        playlist: Qt.resolvedUrl("app/pages/PlaylistPage.qml")
                     })
                     anchors.fill: parent
                     Component.onCompleted: reset(win.startPage)

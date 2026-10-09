@@ -13,8 +13,9 @@ Item {
     signal clicked()
 
     implicitHeight: 32
-    implicitWidth: content.implicitWidth + (_leading ? 8 + 8 : 16) + 16
+    implicitWidth: _leftPad + content.implicitWidth + 16
     readonly property bool _leading: selected || icon !== ""
+    readonly property real _leftPad: _leading ? 10 : 16   // для иконки — до её видимого контура
 
     property real cornerRadius: area.pressed ? 4 : 8
     Behavior on cornerRadius { NumberAnimation { duration: Theme.motion.spatialFast; easing.type: Easing.OutBack } }
@@ -32,12 +33,13 @@ Item {
     Row {
         id: content
         anchors.left: parent.left
-        anchors.leftMargin: root._leading ? 8 : 16
+        anchors.leftMargin: root._leftPad
         anchors.verticalCenter: parent.verticalCenter
-        spacing: 4   // у глифа свои ~2 px полей → видимый зазор ~6
+        spacing: 6
 
         Icon {
             visible: root._leading
+            tight: true
             name: root.selected ? "check" : root.icon
             size: 18
             color: root.selected ? Theme.fgSecondaryContainer : Theme.primary

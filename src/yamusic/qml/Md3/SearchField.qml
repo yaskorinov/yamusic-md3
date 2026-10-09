@@ -7,6 +7,7 @@ Item {
     property alias text: input.text
     property string placeholder: "Поиск"
     property string leadingIcon: "search"
+    property alias echoMode: input.echoMode
     readonly property alias inputItem: input
 
     signal accepted(string text)

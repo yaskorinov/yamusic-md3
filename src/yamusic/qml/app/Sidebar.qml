@@ -73,7 +73,7 @@ Item {
             IconButton { icon: "add"; size: "xs"; iconColor: Theme.primary; enabled: false }
         }
         Label {
-            visible: !root.compact
+            visible: !root.compact && Auth.state !== "signedIn"
             Layout.fillWidth: true
             Layout.leftMargin: 16
             Layout.rightMargin: 16
@@ -86,8 +86,40 @@ Item {
             lineHeightMode: Text.ProportionalHeight
             lineHeight: 1.2
         }
+        LoadingIndicator {
+            visible: !root.compact && Library.playlists.loading && Library.playlists.count === 0
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: 8
+            size: 36
+        }
 
-        Item { Layout.fillHeight: true }
+        // Плейлисты пользователя: своя прокрутка, если их много
+        ListView {
+            id: playlistList
+            visible: Auth.state === "signedIn" && count > 0
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.topMargin: 4
+            clip: true
+            spacing: 2
+            boundsBehavior: Flickable.StopAtBounds
+            acceptedButtons: Qt.NoButton
+            model: Library.playlists
+            delegate: NavItem {
+                required property var model
+                width: ListView.view.width
+                compact: root.compact
+                text: model.title
+                icon: "queue_music"
+                imageSource: model.cover
+                selected: root.router.currentName === "playlist" && root.router.current.props.kind === model.kind
+                          && root.router.current.props.uid === model.uid
+                onClicked: root.router.reset("playlist", { uid: model.uid, kind: model.kind, playlistTitle: model.title, cover: model.cover })
+            }
+            SmoothScroll { flickable: playlistList; wheelStep: Settings.wheelStep; showScrollBar: false }
+        }
+
+        Item { Layout.fillHeight: true; visible: !playlistList.visible }
 
         NavItem {
             Layout.fillWidth: true
@@ -98,33 +130,53 @@ Item {
             onClicked: root.router.reset("settings")
         }
 
-        // Карточка аккаунта (вход — этап 3)
-        Rectangle {
+        // Карточка аккаунта
+        Item {
             Layout.fillWidth: true
             Layout.topMargin: 8
-            Layout.preferredHeight: 64
-            radius: root.compact ? height / 2 : Theme.shape.large
-            color: Theme.surfaceContainer
-            visible: !root.compact
+            Layout.preferredHeight: root.compact ? 56 : 64
+
+            Rectangle {
+                anchors.fill: parent
+                radius: root.compact ? height / 2 : Theme.shape.large
+                color: root.router.rootName === "account" ? Theme.secondaryContainer : Theme.surfaceContainer
+                Behavior on color { enabled: !Theme.transitioning; ColorAnimation { duration: Theme.motion.effectsDefault } }
+            }
 
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: 12
+                anchors.leftMargin: root.compact ? 8 : 12
                 anchors.rightMargin: 8
                 spacing: 12
-                MorphShape {
-                    Layout.preferredWidth: 40
-                    Layout.preferredHeight: 40
-                    shape: "cookie9"
-                    color: Theme.tertiaryContainer
-                    Icon { anchors.centerIn: parent; name: "person"; size: 22; fill: 1; color: Theme.fgTertiaryContainer }
+                Avatar {
+                    size: 40
+                    name: Auth.state === "signedIn" ? (Auth.account.displayName ?? "") : ""
                 }
                 ColumnLayout {
+                    visible: !root.compact
                     Layout.fillWidth: true
                     spacing: 0
-                    Label { Layout.fillWidth: true; text: "Гость"; type: "titleSmall" }
-                    Label { Layout.fillWidth: true; text: "Вход не выполнен"; type: "bodySmall"; color: Theme.fgSurfaceVariant }
+                    Label {
+                        Layout.fillWidth: true
+                        text: Auth.state === "signedIn" ? (Auth.account.displayName ?? "") : "Войти"
+                        type: "titleSmall"
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: Auth.state === "signedIn" ? (Auth.account.hasPlus ? "Плюс" : "Без Плюса")
+                            : Auth.state === "awaitingUser" ? "Ждём подтверждения…"
+                            : Auth.state === "checking" || Auth.state === "signingIn" ? "Входим…"
+                            : "Аккаунт Яндекса"
+                        type: "bodySmall"
+                        color: Theme.fgSurfaceVariant
+                    }
                 }
+            }
+
+            StateLayer {
+                anchors.fill: parent
+                radius: root.compact ? height / 2 : Theme.shape.large
+                onClicked: root.router.reset("account")
             }
         }
     }

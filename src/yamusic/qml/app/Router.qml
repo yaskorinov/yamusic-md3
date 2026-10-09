@@ -19,8 +19,12 @@ Item {
     property var _leaving: []               // элементы, которые уничтожить после анимации
     property Item _out: null
 
+    function _same(entry, name, props) {
+        return entry && entry.name === name && JSON.stringify(entry.props ?? {}) === JSON.stringify(props ?? {})
+    }
+
     function push(name, props) {
-        if (current && current.name === name && JSON.stringify(current.props ?? {}) === JSON.stringify(props ?? {}))
+        if (_same(current, name, props))
             return
         const entry = _make(name, props)
         if (!entry)
@@ -32,7 +36,7 @@ Item {
 
     // Переход в раздел верхнего уровня: стек сбрасывается.
     function reset(name, props) {
-        if (depth === 1 && currentName === name)
+        if (depth === 1 && _same(current, name, props))
             return
         const prev = currentItem
         const entry = _make(name, props)

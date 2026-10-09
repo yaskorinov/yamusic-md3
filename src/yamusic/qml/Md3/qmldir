@@ -19,3 +19,5 @@ SearchField 1.0 SearchField.qml
 Surface 1.0 Surface.qml
 Chip 1.0 Chip.qml
 SmoothFlickable 1.0 SmoothFlickable.qml
+LoadingIndicator 1.0 LoadingIndicator.qml
+SmoothScroll 1.0 SmoothScroll.qml
