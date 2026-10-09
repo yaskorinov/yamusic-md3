@@ -107,6 +107,16 @@ Page {
             }
         }
         SettingRow {
+            title: "Экономия в фоне"
+            description: "Пока окно не в фокусе, декоративные анимации (волна прогресса, фигуры, перелив фона) стоят — меньше нагрузка на процессор. Текст песни продолжает идти"
+            Switch { checked: Settings.calmWhenInactive; onToggled: c => Settings.calmWhenInactive = c }
+        }
+        SettingRow {
+            title: "Обложка дышит в такт"
+            description: "В полноэкранном плеере обложка слегка пульсирует по громкости музыки"
+            Switch { checked: Settings.coverPulse; onToggled: c => Settings.coverPulse = c }
+        }
+        SettingRow {
             title: "Атмосферный фон"
             description: "Размытая обложка играющего трека за всем окном — слабым цветным свечением"
             Switch { checked: Settings.ambientBackground; onToggled: c => Settings.ambientBackground = c }
@@ -126,6 +136,21 @@ Page {
                 autoSelect: false
                 currentIndex: ["low", "high", "lossless"].indexOf(Settings.quality)
                 onActivated: i => Settings.quality = ["low", "high", "lossless"][i]
+            }
+        }
+        SettingRow {
+            title: "Плавный переход между треками"
+            description: Settings.crossfade > 0
+                ? "Следующий трек начинается за " + Settings.crossfade + " с до конца текущего и плавно сменяет его"
+                : "Выключен — треки идут друг за другом без пауз (gapless)"
+            Slider {
+                width: 220
+                from: 0
+                to: 12
+                stepSize: 1
+                value: Settings.crossfade
+                valueText: v => v > 0 ? Math.round(v) + " с" : "выкл"
+                onMoved: v => Settings.crossfade = Math.round(v)
             }
         }
     }

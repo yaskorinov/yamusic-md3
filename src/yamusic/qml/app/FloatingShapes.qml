@@ -51,7 +51,7 @@ Item {
     }
 
     FrameAnimation {
-        running: root.running
+        running: root.running && !Theme.calm
         onTriggered: root._t += frameTime
     }
 

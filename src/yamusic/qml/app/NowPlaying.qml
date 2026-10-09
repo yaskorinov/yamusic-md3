@@ -152,8 +152,26 @@ Item {
 
                 Item { Layout.fillHeight: true }
 
+                // «Дыхание» в такт: уровень звука от mpv; доля над скользящим средним — удар
+                Binding {
+                    target: Player
+                    property: "levelsWanted"
+                    value: root.visible && root.open && Settings.coverPulse && Player.playing && !Theme.calm
+                }
+                property real avgLevel: 0
+                property real beat: 0
+                Connections {
+                    target: Player
+                    function onLevelChanged() {
+                        left.avgLevel += (Player.level - left.avgLevel) * 0.06
+                        left.beat = Math.max(0, Math.min(1, (Player.level - left.avgLevel) * 4))
+                    }
+                }
+
                 MorphImage {
                     // Всё остальное в колонке занимает ~360 px — обложка берёт оставшееся
+                    scale: 1 + 0.055 * left.beat + 0.015 * Player.level
+                    Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
                     readonly property real s: Math.max(160, Math.min(left.width, left.height - 360, 440))
                     Layout.alignment: Qt.AlignHCenter
                     Layout.preferredWidth: s
@@ -176,6 +194,7 @@ Item {
                     Layout.maximumWidth: left.width
                     Layout.topMargin: -6
                     horizontalAlignment: Text.AlignHCenter
+                    previewArtistId: (Player.track.artistRefs ?? []).length === 1 ? Player.track.artistRefs[0].id : ""
                     onClicked: Catalog.openArtists(Player.track.artistRefs ?? [])
                     text: Player.artist
                     type: "titleMedium"
@@ -195,7 +214,7 @@ Item {
                 // Прогресс
                 property real progress: Player.position
                 Behavior on progress {
-                    enabled: Player.playing && !bigSeek.dragging
+                    enabled: Player.playing && !bigSeek.dragging && !Theme.calm
                     NumberAnimation { duration: 220; easing.type: Easing.Linear }
                 }
                 RowLayout {

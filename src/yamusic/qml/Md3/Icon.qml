@@ -29,7 +29,7 @@ Item {
 
     Text {
         id: glyph
-        text: root.name
+        text: IconMetrics.glyph(root.name)
         color: root.color
         textFormat: Text.PlainText
         renderType: Text.NativeRendering  // distance-field (QtRendering) дырявит заливку вариативного шрифта

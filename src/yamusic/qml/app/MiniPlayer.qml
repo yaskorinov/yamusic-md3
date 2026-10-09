@@ -14,7 +14,7 @@ Item {
     // Позиция приходит из Python ~5 раз в секунду; между обновлениями — плавно.
     property real progress: Player.position
     Behavior on progress {
-        enabled: Player.playing && !seekBar.dragging
+        enabled: Player.playing && !seekBar.dragging && !Theme.calm
         NumberAnimation { duration: 220; easing.type: Easing.Linear }
     }
 
@@ -120,6 +120,7 @@ Item {
                         LinkLabel {
                             Layout.fillWidth: true
                             linkEnabled: Player.errorText === "" && Player.hasTrack
+                            previewArtistId: (Player.track.artistRefs ?? []).length === 1 ? Player.track.artistRefs[0].id : ""
                             onClicked: Catalog.openArtists(Player.track.artistRefs ?? [])
                             text: Player.errorText !== "" ? Player.errorText
                                 : Player.hasTrack ? Player.artist : "Выберите трек в «Мне нравится» или плейлисте"

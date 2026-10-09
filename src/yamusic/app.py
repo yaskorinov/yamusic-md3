@@ -132,6 +132,9 @@ def main(argv: list[str] | None = None) -> int:
     theme_engine.bind_settings(app_settings, app.styleHints())
 
     player.bind_settings(app_settings)
+    # Очередь и позиция прошлого запуска (на паузе). Снимки — без сессии, кроме явного файла для тестов.
+    player.persist_session = not args.screenshot or bool(os.environ.get("YAMUSIC_SESSION_FILE"))
+    player.restore_session()
     wave.bind_settings(app_settings)
     # Цвет приложения — из обложки играющего трека
     player.coverFileChanged.connect(lambda: theme_engine.setCover(player.coverFile))

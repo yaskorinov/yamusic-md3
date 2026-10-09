@@ -149,22 +149,32 @@ Window {
         Component.onCompleted: Theme.wipe = themeWipe
     }
     Binding { target: Theme; property: "wipeDirection"; value: Player.direction }
+    // Окно не в фокусе (или свёрнуто) — декоративные анимации стоят
+    Binding { target: Theme; property: "calm"; value: Settings.calmWhenInactive && (!win.active || win.visibility === Window.Minimized) }
 
     // Переходы к исполнителю / альбому / плейлисту — откуда угодно (строки треков, плееры)
     Connections {
         target: Catalog
         function onOpenRequested(name, props) {
             artistMenu.close()
+            artistPreview.hide()
             if (nowPlaying.open)
                 nowPlaying.hide()
             router.push(name, props)
         }
+        function onPreviewRequested(id, x, y, w) { artistPreview.show(id, x, y, w) }
+        function onPreviewCancelled() { artistPreview.hideSoon() }
         function onChooseArtist(refs) {
             artistMenu.refs = refs
             artistMenu.open(refs.map(r => ({ text: r.name, icon: "person" })), cursor.point.position)
         }
     }
     HoverHandler { id: cursor }
+    ArtistPreview {
+        id: artistPreview
+        anchors.fill: parent
+        z: 1900
+    }
     Menu {
         id: artistMenu
         property var refs: []

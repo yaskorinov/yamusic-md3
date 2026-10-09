@@ -28,7 +28,7 @@ Item {
         color: root.containerColor
 
         FrameAnimation {
-            running: root.spin && root.playing && root.visible
+            running: root.spin && root.playing && root.visible && !Theme.calm
             onTriggered: shape.angle = (shape.angle + frameTime * 30) % 360
         }
     }

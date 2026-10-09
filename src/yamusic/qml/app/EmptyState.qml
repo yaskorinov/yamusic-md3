@@ -33,7 +33,7 @@ ColumnLayout {
         Timer {
             interval: 2800
             repeat: true
-            running: root.visible && root.animated
+            running: root.visible && root.animated && !Theme.calm
             onTriggered: art.step++
         }
 

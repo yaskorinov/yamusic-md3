@@ -34,7 +34,7 @@ Page {
             color: Qt.alpha(Theme.primary, 0.22)
         }
         FrameAnimation {
-            running: page.playing && page.visible
+            running: page.playing && page.visible && !Theme.calm
             onTriggered: {
                 hero.angle = (hero.angle + frameTime * 8) % 360
                 inner.angle = (inner.angle - frameTime * 12 + 360) % 360

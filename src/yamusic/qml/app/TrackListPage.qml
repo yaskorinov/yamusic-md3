@@ -116,7 +116,7 @@ Item {
                         color: Theme.surfaceContainerHighest
                     }
                     FrameAnimation {
-                        running: coverBackdrop.visible && page.visible && list.contentY - list.originY < 300
+                        running: coverBackdrop.visible && page.visible && !Theme.calm && list.contentY - list.originY < 300
                         onTriggered: coverBackdrop.rotation = (coverBackdrop.rotation + frameTime * 6) % 360
                     }
                     MorphImage {

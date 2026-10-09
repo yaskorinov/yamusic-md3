@@ -68,7 +68,7 @@ Item {
     }
 
     FrameAnimation {
-        running: root.visible && root.livingSpeed > 0 && (Shapes.isLiving(root._from) || Shapes.isLiving(root._to))
+        running: root.visible && !Theme.calm && root.livingSpeed > 0 && (Shapes.isLiving(root._from) || Shapes.isLiving(root._to))
         onTriggered: root._time += frameTime * root.livingSpeed
     }
 

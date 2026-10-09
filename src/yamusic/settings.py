@@ -19,6 +19,8 @@ SCHEMA: dict[str, tuple[type, object]] = {
     "nowPlayingBlur": (float, 1.0),        # размытие фона полноэкранного плеера, 0..1
     "nowPlayingDrift": (float, 0.5),       # «плавание» размытия: скорость перелива 0..1, 0 — неподвижно
     "ambientBackground": (bool, True),     # размытая обложка за всем окном
+    "coverPulse": (bool, True),            # обложка в полноэкранном плеере «дышит» в такт
+    "calmWhenInactive": (bool, True),      # окно не в фокусе — декоративные анимации стоят
     # Раскладка
     "rightPanelOpen": (bool, False),
     "rightPanelTab": (str, "queue"),       # queue | lyrics
@@ -28,6 +30,7 @@ SCHEMA: dict[str, tuple[type, object]] = {
     # Воспроизведение
     "quality": (str, "lossless"),          # lossless | high | low
     "volume": (float, 0.7),
+    "crossfade": (int, 4),                 # плавный переход между треками, секунды (0 — без пауз, gapless)
     "waveSeeds": (str, ""),                # выбранные настройки «Моей волны» (сиды через запятую)
     # Поведение
     "wheelStep": (int, 150),

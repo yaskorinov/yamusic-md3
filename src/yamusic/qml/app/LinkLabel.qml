@@ -1,5 +1,6 @@
 import QtQuick
 import Md3
+import YaMusic.Core
 
 // Текст-ссылка (исполнитель, альбом): подчёркивается при наведении. Кликабелен только сам текст,
 // а не пустое место справа — там клик достаётся строке под ним.
@@ -7,6 +8,8 @@ Label {
     id: root
 
     property bool linkEnabled: true
+    // Карточка исполнителя при наведении (через Catalog — её показывает главное окно)
+    property string previewArtistId
     signal clicked()
 
     font.underline: area.containsMouse && linkEnabled
@@ -18,6 +21,28 @@ Label {
         enabled: root.linkEnabled
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        onClicked: root.clicked()
+        onClicked: {
+            hoverDelay.stop()
+            Catalog.cancelPreview()
+            root.clicked()
+        }
+        onContainsMouseChanged: {
+            if (root.previewArtistId === "")
+                return
+            if (containsMouse) {
+                hoverDelay.restart()
+            } else {
+                hoverDelay.stop()
+                Catalog.cancelPreview()
+            }
+        }
+    }
+    Timer {
+        id: hoverDelay
+        interval: 600
+        onTriggered: {
+            const p = area.mapToItem(null, 0, area.height)
+            Catalog.previewArtist(root.previewArtistId, p.x, p.y, area.width)
+        }
     }
 }

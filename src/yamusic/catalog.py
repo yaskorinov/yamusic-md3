@@ -99,6 +99,8 @@ class ArtistData(QObject):
 class Catalog(QObject):
     openRequested = Signal(str, "QVariantMap")   # страница, параметры
     chooseArtist = Signal("QVariantList")        # у трека несколько исполнителей — пусть выберет
+    previewRequested = Signal(str, float, float, float)   # карточка исполнителя: id, x, y (низ ссылки), ширина
+    previewCancelled = Signal()
     searchChanged = Signal()
 
     def __init__(self, runner: AsyncRunner, auth: Auth, parent: QObject | None = None):
@@ -140,6 +142,15 @@ class Catalog(QObject):
             self.openArtist(refs[0]["id"])
         elif refs:
             self.chooseArtist.emit(refs)
+
+    @Slot(str, float, float, float)
+    def previewArtist(self, artist_id: str, x: float, y: float, width: float) -> None:
+        if artist_id:
+            self.previewRequested.emit(artist_id, x, y, width)
+
+    @Slot()
+    def cancelPreview(self) -> None:
+        self.previewCancelled.emit()
 
     @Slot("QVariantMap")
     def openPlaylist(self, playlist: dict) -> None:

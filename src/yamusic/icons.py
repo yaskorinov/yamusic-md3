@@ -5,9 +5,16 @@
 Поэтому глиф один раз рисуется в буфер, его фактические границы меряются по пикселям,
 и в QML отдаются поправка и размер контура в пикселях. Результат кэшируется по (имя, кегль).
 Размер контура нужен кнопкам и чипам: отступы MD3 отмеряются от видимой иконки, а не от её квадрата.
+
+Шрифт урезан до используемых иконок (tools/subset_fonts.py), поэтому иконка рисуется символом
+по коду из assets/fonts/icons.json, а не лигатурой имени — glyph(name).
 """
 
 from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QRectF, Qt, Slot
 from PySide6.QtGui import QFont, QFontMetricsF, QImage, QPainter
@@ -17,6 +24,7 @@ QML_IMPORT_NAME = "YaMusic.Core"
 QML_IMPORT_MAJOR_VERSION = 1
 
 FAMILY = "Material Symbols Rounded"
+CODEPOINTS: dict[str, int] = json.loads((Path(__file__).parent / "assets" / "fonts" / "icons.json").read_text())
 
 
 @QmlElement
@@ -25,6 +33,15 @@ class IconMetrics(QObject):
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
         self._cache: dict[tuple[str, int], QRectF] = {}
+
+    @Slot(str, result=str)
+    def glyph(self, name: str) -> str:
+        code = CODEPOINTS.get(name)
+        if code is None:
+            if name:
+                print(f"иконки «{name}» нет в урезанном шрифте — запустите tools/subset_fonts.py", file=sys.stderr)
+            return ""
+        return chr(code)
 
     @Slot(str, float, result=QRectF)
     def ink(self, name: str, size: float) -> QRectF:
@@ -44,8 +61,11 @@ class IconMetrics(QObject):
         font.setPixelSize(size)
         font.setVariableAxis(QFont.Tag("FILL"), 1)
         font.setVariableAxis(QFont.Tag("opsz"), max(20, min(48, size)))
+        text = self.glyph(name)
+        if not text:
+            return QRectF()
         metrics = QFontMetricsF(font)
-        advance = metrics.horizontalAdvance(name)
+        advance = metrics.horizontalAdvance(text)
         height = metrics.height()
         w, h = int(advance) + 8, int(height) + 8
         image = QImage(w, h, QImage.Format.Format_Alpha8)
@@ -53,7 +73,7 @@ class IconMetrics(QObject):
         painter = QPainter(image)
         painter.setFont(font)
         painter.setPen(Qt.GlobalColor.black)
-        painter.drawText(QRectF(4, 4, advance, height), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, name)
+        painter.drawText(QRectF(4, 4, advance, height), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, text)
         painter.end()
 
         data = bytes(image.constBits())
