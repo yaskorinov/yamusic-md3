@@ -6,8 +6,8 @@ fetch() возвращает
               "i": слова интерполированы} | {"gap": true, "t": начало, "e": конец}]}
 или {"ok": false, "error": "...", "details": [...]}.
 
-Цепочка: NetEase YRC (по словам) -> Musixmatch richsync (по словам) -> Яндекс LRC (по строкам)
--> LRCLIB -> Musixmatch subtitles -> NetEase LRC. У построчных текстов время слов
+Цепочка: NetEase YRC (по словам) -> Musixmatch richsync (по словам) -> LRCLIB (по строкам)
+-> Musixmatch subtitles -> NetEase LRC -> Яндекс LRC. У построчных текстов время слов
 интерполируется по длине. Всё синхронное (urllib) — вызывается из рабочего потока.
 """
 
@@ -24,7 +24,7 @@ import urllib.request
 
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
 CACHE_DIR = ""          # задаёт yamusic.lyrics (каталог кэша приложения)
-CACHE_VERSION = 3
+CACHE_VERSION = 4   # 4 — Яндекс в конце цепочки
 NOT_FOUND_TTL = 6 * 3600
 TIMEOUT = 8
 GAP_MIN = 4.5          # seconds of silence that get the "• • •" interlude
@@ -405,30 +405,30 @@ def fetch(title, artist, album, duration, mxm_user_token="", yandex_lrc=None):
         if r:
             mxm_line = r[1]
 
-    # 3. Яндекс: синхронный текст по строкам (хорошо покрывает русскую музыку)
-    if yandex_lrc is not None:
-        lrc = attempt("yandex", yandex_lrc)
-        if lrc:
-            lines = build_from_timed_lines(lines_from_lrc(lrc), duration)
-            if lines:
-                return {"ok": True, "source": "Яндекс", "kind": "line", "lines": lines}
-
-    # 4. LRCLIB (line level, interpolated)
+    # 3. LRCLIB (line level, interpolated)
     lrc = attempt("lrclib", lambda: lrclib_fetch(title, artist, album, duration))
     if lrc:
         lines = build_from_timed_lines(lines_from_lrc(lrc), duration)
         if lines:
             return {"ok": True, "source": "LRCLIB", "kind": "line", "lines": lines}
 
-    # 5. Musixmatch subtitles
+    # 4. Musixmatch subtitles
     if mxm_line:
         return {"ok": True, "source": "Musixmatch", "kind": "line", "lines": mxm_line}
 
-    # 6. NetEase plain LRC
+    # 5. NetEase plain LRC
     ne_lrc = ((ne_data or {}).get("lrc") or {}).get("lyric")
     if ne_lrc:
         lines = build_from_timed_lines(lines_from_lrc(ne_lrc), duration)
         if lines:
             return {"ok": True, "source": "NetEase", "kind": "line", "lines": lines}
+
+    # 6. Яндекс — последним: синхронизация у него грубее, но русскую музыку он знает почти всю
+    if yandex_lrc is not None:
+        lrc = attempt("yandex", yandex_lrc)
+        if lrc:
+            lines = build_from_timed_lines(lines_from_lrc(lrc), duration)
+            if lines:
+                return {"ok": True, "source": "Яндекс", "kind": "line", "lines": lines}
 
     return {"ok": False, "error": "not found", "details": errors}

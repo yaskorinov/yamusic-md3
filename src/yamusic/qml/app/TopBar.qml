@@ -32,12 +32,23 @@ Item {
         anchors.rightMargin: 16
         spacing: 8
 
-        IconButton {
-            icon: "arrow_back"
-            enabled: root.router.depth > 1
-            opacity: enabled ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsFast } }
-            onClicked: root.router.back()
+        // Без «назад» кнопка схлопывается, и заголовок стоит у левого края
+        Item {
+            Layout.preferredWidth: back.enabled ? back.implicitWidth : 0
+            // заголовок встаёт по левому краю содержимого страницы (отступ 32)
+            Layout.rightMargin: back.enabled ? 0 : 8
+            Layout.preferredHeight: back.implicitHeight
+            Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.motion.spatialFast; easing.type: Easing.OutCubic } }
+            Behavior on Layout.rightMargin { NumberAnimation { duration: Theme.motion.spatialFast; easing.type: Easing.OutCubic } }
+            clip: true
+            IconButton {
+                id: back
+                icon: "arrow_back"
+                enabled: root.router.depth > 1
+                opacity: enabled ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsFast } }
+                onClicked: root.router.back()
+            }
         }
 
         Label {

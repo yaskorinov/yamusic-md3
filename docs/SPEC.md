@@ -164,7 +164,7 @@ src/yamusic/
 ## Тексты песен
 
 - `lyrics_sources.py` — загрузчик из плагина Word Lyrics (DMS) того же автора: NetEase YRC (по словам) →
-  Musixmatch richsync (по словам) → Яндекс LRC (по строкам) → LRCLIB → Musixmatch subtitles → NetEase LRC.
+  Musixmatch richsync (по словам) → LRCLIB → Musixmatch subtitles → NetEase LRC → Яндекс LRC.
   Построчным текстам время слов интерполируется по длине. Кэш — ~/.cache/yamusic/YaMusic/lyrics.
 - `lyrics.py` — синглтон `Lyrics` для играющего трека (поиск в рабочем потоке, Яндекс — через asyncio-цикл).
 - `app/LyricsView.qml` — заливка по словам (шейдер `wordfill`), каскадная прокрутка, паузы «• • •»,
