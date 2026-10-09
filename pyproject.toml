@@ -1,0 +1,16 @@
+[project]
+name = "yamusic"
+version = "0.1.0"
+description = "Кастомный клиент Яндекс Музыки для Linux в стиле Material 3 Expressive"
+requires-python = ">=3.14"
+dependencies = [
+    "materialyoucolor>=3.0.4",
+    "pyside6-essentials>=6.12",
+]
+
+[project.scripts]
+yamusic = "yamusic:main"
+
+[build-system]
+requires = ["uv_build>=0.12.24,<0.13.0"]
+build-backend = "uv_build"
