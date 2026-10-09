@@ -70,14 +70,11 @@ Surface {
                 title: "Очередь пуста"
                 text: "Треки появятся здесь, когда начнётся воспроизведение"
             }
-            EmptyState {
-                anchors.centerIn: parent
-                width: Math.min(parent.width, 280)
-                visible: Settings.rightPanelTab === "lyrics"
-                icon: "title"
-                shape: "flower6"
-                title: "Нет текста"
-                text: "Синхронный текст покажется здесь для играющего трека"
+            LyricsView {
+                anchors.fill: parent
+                visible: Settings.rightPanelTab === "lyrics" && Settings.rightPanelOpen
+                fontSize: 22
+                anchorPos: 0.3
             }
         }
     }

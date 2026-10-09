@@ -55,9 +55,20 @@ Item {
         }
 
         header: Item {
+            id: headerItem
             width: list.width
             implicitHeight: hero.implicitHeight + 40
             onImplicitHeightChanged: list.keepTop()
+
+            // Медленно плывущие фигуры за шапкой; стоят, когда шапка уехала из виду
+            FloatingShapes {
+                anchors.fill: parent
+                anchors.topMargin: -24
+                visible: page.showHeader
+                seed: page.title
+                opacity: 0.75
+                running: page.visible && list.contentY - list.originY < headerItem.height
+            }
 
             RowLayout {
                 id: hero
@@ -67,11 +78,24 @@ Item {
                 width: parent.width - 32
                 spacing: 28
 
-                // Обложка или фигура с иконкой
+                // Обложка или фигура с иконкой; за обложкой — медленно вращающаяся фигура
                 Item {
                     Layout.preferredWidth: page.width > 760 ? 184 : 128
                     Layout.preferredHeight: Layout.preferredWidth
                     Layout.alignment: Qt.AlignTop
+                    MorphShape {
+                        id: coverBackdrop
+                        visible: page.heroImage !== ""
+                        anchors.centerIn: parent
+                        width: parent.width * 1.3
+                        height: width
+                        shape: "cookie9"
+                        color: Theme.surfaceContainerHighest
+                    }
+                    FrameAnimation {
+                        running: coverBackdrop.visible && page.visible && list.contentY - list.originY < 300
+                        onTriggered: coverBackdrop.rotation = (coverBackdrop.rotation + frameTime * 6) % 360
+                    }
                     MorphImage {
                         anchors.fill: parent
                         visible: page.heroImage !== ""

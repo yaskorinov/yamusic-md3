@@ -124,7 +124,7 @@ Item {
                             type: "bodySmall"
                             color: Player.errorText !== "" ? Theme.error : Theme.fgSurfaceVariant
                         }
-                        CodecBadge { Layout.alignment: Qt.AlignBottom }
+                        CodecBadge { Layout.alignment: Qt.AlignVCenter; Layout.bottomMargin: 3 }
                     }
                     RowLayout {
                         Layout.fillWidth: true

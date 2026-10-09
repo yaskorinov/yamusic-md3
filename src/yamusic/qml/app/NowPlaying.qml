@@ -4,30 +4,37 @@ import QtQuick.Effects
 import Md3
 import YaMusic.Core
 
-// Полноэкранный плеер. Раскрывается морфящимся блобом из обложки мини-плеера (origin) и
-// схлопывается обратно. Маска (MultiEffect) включена только на время анимации.
+// Полноэкранный плеер. Раскрывается через «окно» — случайную фигуру MD3 Expressive:
+// фаза 1 — фигура быстро вращается и растёт из маленькой (на обложке мини-плеера) до средней,
+// уходя к центру; фаза 2 — растёт на весь экран, пока весь экран не окажется внутри неё.
+// Закрытие — тот же путь в обратную сторону. Маска (MultiEffect) включена только на время перехода.
 Item {
     id: root
 
     property bool open: false
     property point origin: Qt.point(width / 2, height - 60)
-    property string tab: "queue"           // queue | lyrics
+    property string tab: "lyrics"          // lyrics | queue
     property real reveal: open ? 1 : 0
     readonly property bool animating: revealAnim.running
-    readonly property real maxRadius: 1.25 * Math.max(
-        Math.hypot(origin.x, origin.y), Math.hypot(width - origin.x, origin.y),
-        Math.hypot(origin.x, height - origin.y), Math.hypot(width - origin.x, height - origin.y))
+
+    readonly property var _windowShapes: ["cookie9", "cookie12", "cookie7", "flower8", "flower6", "clover4", "sunny", "cookie6"]
+    readonly property real _split: 0.45
+    readonly property real _a: Math.min(1, reveal / _split)
+    readonly property real _b: Math.max(0, (reveal - _split) / (1 - _split))
+
+    function _inOut(x) {
+        return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2
+    }
 
     function show(from) {
         if (from)
             origin = from
-        blob.shape = "flower8"
+        if (!open)
+            blob.jumpTo(_windowShapes[Math.floor(Math.random() * _windowShapes.length)])
         open = true
-        blob.shape = "circle"
         forceActiveFocus()
     }
     function hide() {
-        blob.shape = "flower6"
         open = false
     }
 
@@ -38,9 +45,8 @@ Item {
     Behavior on reveal {
         NumberAnimation {
             id: revealAnim
-            duration: root.open ? 650 : 450
-            easing.type: Easing.BezierSpline
-            easing.bezierCurve: root.open ? Theme.motion.emphasizedDecelerate : Theme.motion.emphasizedAccelerate
+            duration: root.open ? 820 : 620
+            easing.type: Easing.Linear     // кривые — у каждой фазы свои, см. blob
         }
     }
 
@@ -49,7 +55,7 @@ Item {
         return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0")
     }
 
-    // Маска раскрытия: блоб с центром в origin
+    // Маска раскрытия: фигура-«окно»
     Item {
         id: revealMask
         anchors.fill: parent
@@ -57,23 +63,30 @@ Item {
         layer.enabled: root.animating || root.reveal < 1
         MorphShape {
             id: blob
-            readonly property real r: 24 + (root.maxRadius - 24) * root.reveal
-            x: root.origin.x - r
-            y: root.origin.y - r
-            width: 2 * r
-            height: 2 * r
-            duration: 650
-            overshoot: 1.1
+            readonly property real e1: root._inOut(root._a)
+            readonly property real e2: root._inOut(root._b)
+            readonly property real small: 36
+            readonly property real medium: 0.42 * Math.min(root.width, root.height)
+            // Во впадинах фигура уже описанного круга — берём с запасом, чтобы углы окна оказались внутри
+            readonly property real full: 2 * 1.6 * Math.hypot(root.width / 2, root.height / 2)
+            readonly property real d: root._b > 0 ? medium + (full - medium) * e2 : small + (medium - small) * e1
+            readonly property real cx: root.origin.x + (root.width / 2 - root.origin.x) * e1
+            readonly property real cy: root.origin.y + (root.height / 2 - root.origin.y) * e1
+            x: cx - d / 2
+            y: cy - d / 2
+            width: d
+            height: d
+            rotation: 240 * e1 + 50 * e2
             color: "white"
             tinted: false
         }
     }
 
-    // Содержимое (гаснет на последней трети сворачивания — без «обрубка» обложки в конце)
+    // Содержимое (в самом конце сворачивания гаснет — без «обрубка» в крошечной фигуре)
     Item {
         id: content
         anchors.fill: parent
-        opacity: Math.min(1, root.reveal / 0.3)
+        opacity: Math.min(1, root.reveal / 0.12)
         layer.enabled: root.reveal < 1
         layer.effect: MultiEffect {
             maskEnabled: true
@@ -335,14 +348,10 @@ Item {
                 }
                 SmoothScroll { flickable: queueList; wheelStep: Settings.wheelStep; visible: queueList.visible }
 
-                EmptyState {
-                    anchors.centerIn: parent
-                    width: Math.min(parent.width, 360)
-                    visible: root.tab === "lyrics"
-                    icon: "title"
-                    shape: "flower6"
-                    title: "Текст пока недоступен"
-                    text: "Синхронный текст будет появляться здесь для играющего трека"
+                LyricsView {
+                    anchors.fill: parent
+                    visible: root.tab === "lyrics" && root.visible
+                    fontSize: Math.max(26, Math.min(40, root.width / 36))
                 }
             }
         }

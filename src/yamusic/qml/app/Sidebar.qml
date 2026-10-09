@@ -165,7 +165,9 @@ Item {
 
         Item { Layout.fillHeight: true; visible: !playlistList.visible }
 
+        // В рейле настройки — отдельным пунктом; в развёрнутом виде — кнопкой в карточке аккаунта
         NavItem {
+            visible: root.compact
             Layout.fillWidth: true
             Layout.topMargin: 8
             compact: root.compact
@@ -201,7 +203,7 @@ Item {
             Column {
                 x: avatar.x + avatar.width + 12
                 anchors.verticalCenter: parent.verticalCenter
-                width: root.expandedWidth - 2 * root.margin - x - 12
+                width: root.expandedWidth - 2 * root.margin - x - 12 - settingsButton.width
                 opacity: root.compact ? 0 : 1
                 visible: opacity > 0
                 Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsFast } }
@@ -225,6 +227,21 @@ Item {
                 anchors.fill: parent
                 radius: Theme.shape.large
                 onClicked: root.router.reset("account")
+            }
+
+            IconButton {
+                id: settingsButton
+                anchors.right: parent.right
+                anchors.rightMargin: 12
+                anchors.verticalCenter: parent.verticalCenter
+                icon: "settings"
+                checkable: true
+                autoToggle: false
+                checked: root.router.rootName === "settings"
+                opacity: root.compact ? 0 : 1
+                visible: opacity > 0
+                Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsFast } }
+                onClicked: root.router.reset("settings")
             }
         }
     }

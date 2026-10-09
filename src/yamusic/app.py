@@ -21,6 +21,7 @@ from .display import prefer_fastest_screen
 from .history import PlayReporter
 from .images import CachingNamFactory
 from .library import Library
+from .lyrics import Lyrics
 from .mpris import Mpris
 from .player import Player
 from .wave import Wave
@@ -114,6 +115,8 @@ def main(argv: list[str] | None = None) -> int:
     wave = Wave(runner, auth, player, library)
     qmlRegisterSingletonInstance(Wave, "YaMusic.Core", 1, 0, "Wave", wave)
     reporter = PlayReporter(runner, auth, player)  # noqa: F841
+    lyrics = Lyrics(runner, auth, player)
+    qmlRegisterSingletonInstance(Lyrics, "YaMusic.Core", 1, 0, "Lyrics", lyrics)
 
     engine = QQmlApplicationEngine()
     nam_factory = CachingNamFactory()  # ссылка должна жить столько же, сколько движок
