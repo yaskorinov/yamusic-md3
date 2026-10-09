@@ -52,6 +52,9 @@ Surface {
                     explicit: model.explicit
                     available: model.available
                     current: index === Player.currentIndex
+                    trackId: model.trackId
+                    liked: Library.likesRevision >= 0 && Library.isLiked(model.trackId)
+                    onLikeClicked: Library.toggleLike(Player.queue.get(index))
                     onActivated: Player.playIndex(index)
                 }
                 Component.onCompleted: positionViewAtIndex(Math.max(0, Player.currentIndex - 1), ListView.Beginning)

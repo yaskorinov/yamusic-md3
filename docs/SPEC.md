@@ -42,8 +42,8 @@
 2. ✅ **Каркас приложения**: окно, навигация, роутинг страниц, хранилище настроек.
 3. ✅ **Авторизация + API-слой** (асинхронный, в отдельном потоке) + кэш обложек.
 4. ✅ **Плеер** (mpv) + очередь + MPRIS + мини-плеер + Now Playing.
-5. **Моя волна**, лайк/дизлайк ← следующий.
-6. Плейлисты / альбомы / артисты, поиск.
+5. ✅ **Моя волна**, лайк/дизлайк, учёт прослушиваний.
+6. Плейлисты / альбомы / артисты, поиск ← следующий.
 7. Тексты, офлайн-кэш.
 8. Трей, PKGBUILD.
 
@@ -58,7 +58,11 @@ src/yamusic/
   aio.py             asyncio-цикл в фоновом потоке, колбэки — в GUI-потоке
   auth.py            Auth: device code (ya.ru/device) / токен, состояние входа
   tokens.py          токен: Secret Service, если есть связка по умолчанию, иначе файл 0600
-  library.py         Library: плейлисты, «Мне нравится», треки плейлистов (порциями)
+  library.py         Library: плейлисты, «Мне нравится», треки плейлистов (порциями), лайки/дизлайки
+  player.py          Player: mpv, очередь с контекстом (откуда треки), события начала/конца трека
+  wave.py            Wave: «Моя волна» — сессия rotor, настройки, обратная связь
+  history.py         PlayReporter: /play-audio (история и рекомендации)
+  mpris.py           MPRIS на dbus-fast
   models.py          TrackListModel / PlaylistListModel (QAbstractListModel)
   images.py          дисковый кэш картинок для QML (~/.cache/yamusic/YaMusic/images, 512 МБ)
   icons.py           IconMetrics: оптическое центрирование глифов Material Symbols
@@ -121,6 +125,21 @@ src/yamusic/
 - Клавиши: Space, Ctrl+←/→, Shift+←/→ (±10 с), Ctrl+↑/↓ громкость, Ctrl+P плеер, Esc закрыть.
 - Тесты без звука: `YAMUSIC_AO=null`. libmpv требует `LC_NUMERIC=C`.
 - Синглтоны-экземпляры регистрировать ДО создания QQmlApplicationEngine — иначе ломается весь QML.
+
+## Моя волна и оценки (этап 5)
+
+- Волна — новые сессии rotor: `rotor_session_new(seeds)` → партия треков + `radioSessionId`/`batchId`;
+  следующая партия — `rotor_session_tracks(id, queue=последние полученные)`, когда впереди < 3 треков
+  (плеер вызывает «подкормку» волны). Протухшая сессия (`unknownSession`) пересоздаётся с теми же сидами.
+- Сиды: `user:onyourwave` или сид занятия (`activity:workout`, `genre:dance`, `mood:relaxed`) + настройки
+  `settingDiversity:*`, `settingMoodEnergy:*`, `settingLanguage:*`. Список — из `/rotor/wave/settings`,
+  при ошибке — запасной в `wave.py`. Выбор хранится в `Settings.waveSeeds`.
+- Смена настройки во время игры: новая сессия, всё после текущего трека заменяется.
+- Обратная связь волне: radioStarted, trackStarted, trackFinished/skip (сколько секунд проиграно), like/unlike/dislike.
+- `/play-audio` для любого трека: в начале (0 с) и в конце (проиграно, позиция конца); `from` — по контексту очереди.
+- Лайк меняет интерфейс сразу (`Library.likesRevision` для привязок), при ошибке API — откат.
+  «Не рекомендовать» = `users_dislikes_tracks_add` + следующий трек.
+- Тесты на настоящем аккаунте: `YAMUSIC_NO_REPORT=1` — история и обратная связь не отправляются, только пишутся в лог.
 
 ## Производительность (уроки)
 

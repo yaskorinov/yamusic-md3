@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import Md3
+import YaMusic.Core
 import ".."
 
 Page {
@@ -8,14 +9,10 @@ Page {
     title: "Моя волна"
     showHeader: false
 
-    property var picks: ({})   // группа → индекс выбранного чипа (-1 — любой)
-    readonly property var groups: [
-        { name: "Занятие", items: ["Просыпаюсь", "В дороге", "Работаю", "Тренируюсь", "Засыпаю"] },
-        { name: "Характер", items: ["Любимое", "Незнакомое", "Популярное"] },
-        { name: "Настроение", items: ["Бодрое", "Весёлое", "Спокойное", "Грустное"] }
-    ]
+    readonly property bool signedIn: Auth.state === "signedIn"
+    readonly property bool playing: Wave.active && Player.playing
 
-    // Герой: морфящаяся фигура + большая кнопка
+    // Герой: морфящиеся фигуры + большая кнопка. Пока волна играет — фигуры медленно вращаются.
     Item {
         Layout.fillWidth: true
         Layout.preferredHeight: 340
@@ -24,22 +21,41 @@ Page {
             id: hero
             width: 300; height: 300
             anchors.centerIn: parent
-            shape: heroArea.containsMouse ? "flower8" : "cookie12"
+            shape: page.playing ? "flower8" : heroArea.containsMouse ? "cookie9" : "cookie12"
             duration: Theme.motion.spatialSlow
             color: Theme.primaryContainer
         }
         MorphShape {
+            id: inner
             width: 210; height: 210
             anchors.centerIn: parent
-            shape: heroArea.containsMouse ? "cookie9" : "clover4"
+            shape: page.playing ? "cookie6" : heroArea.containsMouse ? "cookie9" : "clover4"
             duration: Theme.motion.spatialSlow
             color: Qt.alpha(Theme.primary, 0.22)
+        }
+        FrameAnimation {
+            running: page.playing && page.visible
+            onTriggered: {
+                hero.angle = (hero.angle + frameTime * 8) % 360
+                inner.angle = (inner.angle - frameTime * 12 + 360) % 360
+            }
         }
         PlayButton {
             anchors.centerIn: parent
             size: 104
+            playing: page.playing
+            spin: false
             playingShape: "cookie9"
             pausedShape: "cookie6"
+            enabled: page.signedIn
+            onClicked: Wave.play()
+        }
+        LoadingIndicator {
+            anchors.centerIn: parent
+            size: 128
+            color: Theme.primary
+            visible: Wave.loading || (Wave.active && Player.buffering)
+            opacity: 0.6
         }
         MouseArea { id: heroArea; anchors.fill: hero; hoverEnabled: true; acceptedButtons: Qt.NoButton }
     }
@@ -52,33 +68,43 @@ Page {
     }
     Label {
         Layout.alignment: Qt.AlignHCenter
+        Layout.maximumWidth: 640
         Layout.topMargin: -16
-        text: "Подбор станет доступен после входа"
+        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.Wrap
+        text: !page.signedIn ? "Подбор станет доступен после входа"
+            : Wave.errorText !== "" ? Wave.errorText
+            : Wave.active && Player.hasTrack ? Player.title + " — " + Player.artist
+            : "Бесконечный поток музыки под ваш вкус. Лайки и «не рекомендовать» сразу меняют подбор"
         type: "bodyLarge"
-        color: Theme.fgSurfaceVariant
+        color: Wave.errorText !== "" && page.signedIn ? Theme.error : Theme.fgSurfaceVariant
+    }
+    Button {
+        visible: !page.signedIn
+        Layout.alignment: Qt.AlignHCenter
+        text: "Войти"
+        icon: "login"
+        onClicked: page.router.reset("account")
     }
 
+    // Настройки: connected button group, как «Качество звука». Повторный клик снимает выбор («любое»).
+    // Во время игры смена настройки сразу пересобирает следующие треки.
     Repeater {
-        model: page.groups
+        model: Wave.groups
         ColumnLayout {
             id: group
             required property var modelData
+            readonly property var seeds: modelData.items.map(i => i.seed)
             Layout.fillWidth: true
-            Layout.maximumWidth: 720
+            Layout.maximumWidth: 860
             Layout.alignment: Qt.AlignHCenter
             spacing: 10
-            Label { text: group.modelData.name; type: "titleMedium"; color: Theme.fgSurfaceVariant }
-            // Connected button group (MD3 Expressive), как «Качество звука» в настройках.
-            // Повторный клик по выбранному варианту снимает выбор («любое»).
+            Label { text: group.modelData.title; type: "titleMedium"; color: Theme.fgSurfaceVariant }
             ButtonGroup {
-                model: group.modelData.items
+                model: group.modelData.items.map(i => i.label)
                 autoSelect: false
-                currentIndex: page.picks[group.modelData.name] ?? -1
-                onActivated: i => {
-                    const p = Object.assign({}, page.picks)
-                    p[group.modelData.name] = p[group.modelData.name] === i ? -1 : i
-                    page.picks = p
-                }
+                currentIndex: group.seeds.indexOf(Wave.selection[group.modelData.key] ?? "")
+                onActivated: i => Wave.select(group.modelData.key, group.seeds[i])
             }
         }
     }

@@ -12,7 +12,6 @@ TrackListPage {
             : Library.liked.loading && Library.liked.count === 0 ? "Загружаем…"
             : Library.liked.count + " " + plural(Library.liked.count, "трек", "трека", "треков")
     model: Auth.state === "signedIn" ? Library.liked : null
-    likedMarks: false
     emptyIcon: "favorite"
     emptyTitle: "Пока пусто"
     emptyText: "Отмечайте треки сердечком — они появятся здесь"

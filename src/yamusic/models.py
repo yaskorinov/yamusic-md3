@@ -116,6 +116,27 @@ class DictListModel(QAbstractListModel):
         self.endInsertRows()
         self.countChanged.emit()
 
+    def insert(self, row: int, items: list[dict[str, object]]) -> None:
+        if not items:
+            return
+        row = max(0, min(row, len(self._items)))
+        self.beginInsertRows(QModelIndex(), row, row + len(items) - 1)
+        self._items[row:row] = items
+        self.endInsertRows()
+        self.countChanged.emit()
+
+    def remove(self, row: int, count: int = 1) -> None:
+        count = min(count, len(self._items) - row)
+        if row < 0 or count <= 0:
+            return
+        self.beginRemoveRows(QModelIndex(), row, row + count - 1)
+        del self._items[row:row + count]
+        self.endRemoveRows()
+        self.countChanged.emit()
+
+    def find(self, key: str, value: object) -> int:
+        return next((i for i, item in enumerate(self._items) if item.get(key) == value), -1)
+
 
 TRACK_KEYS = ["trackId", "albumId", "title", "version", "artists", "album", "cover", "durationMs", "explicit", "available"]
 PLAYLIST_KEYS = ["uid", "kind", "title", "trackCount", "cover", "owner"]
@@ -124,6 +145,7 @@ PLAYLIST_KEYS = ["uid", "kind", "title", "trackCount", "cover", "owner"]
 class TrackListModel(DictListModel):
     def __init__(self, parent: QObject | None = None):
         super().__init__(TRACK_KEYS, parent)
+        self.context: dict[str, str] = {}   # откуда треки (для плеера и учёта прослушиваний)
 
 
 class PlaylistListModel(DictListModel):

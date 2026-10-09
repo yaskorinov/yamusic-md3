@@ -43,7 +43,7 @@ Item {
             checkable: true
             autoToggle: false
             checked: Player.shuffle
-            enabled: Player.hasTrack
+            enabled: Player.hasTrack && Player.source !== "wave"
             onClicked: Player.shuffle = !Player.shuffle
         }
         IconButton { icon: "skip_previous"; iconColor: Theme.fgSurface; enabled: Player.hasTrack; onClicked: Player.previous() }
@@ -161,6 +161,16 @@ Item {
                 onTapped: root.openNowPlaying(coverBox.mapToItem(null, coverBox.width / 2, coverBox.height / 2))
             }
         }
+
+        // Оценка: «не рекомендовать» — только в волне (там она влияет на подбор), лайк — всегда
+        IconButton {
+            visible: Player.source === "wave"
+            icon: "thumb_down"
+            enabled: Player.hasTrack
+            onClicked: { Library.dislike(Player.track); Player.next() }
+        }
+        LikeButton { track: Player.track }
+        Item { implicitWidth: 8 }
 
         // Панели и громкость
         IconButton {

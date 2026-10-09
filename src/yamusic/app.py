@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 import tempfile
@@ -17,10 +18,12 @@ from . import icons, settings, theme  # noqa: F401  регистрируют YaM
 from .aio import AsyncRunner
 from .auth import Auth
 from .display import prefer_fastest_screen
+from .history import PlayReporter
 from .images import CachingNamFactory
 from .library import Library
 from .mpris import Mpris
 from .player import Player
+from .wave import Wave
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 QML_DIR = PACKAGE_DIR / "qml"
@@ -94,6 +97,10 @@ def main(argv: list[str] | None = None) -> int:
         print(screen_note, file=sys.stderr)
     load_fonts()
 
+    logging.basicConfig(format="yamusic: %(name)s: %(message)s", level=logging.WARNING)
+    # Библиотека сообщает о каждом новом поле в ответах API — пользователю это не нужно
+    logging.getLogger("yandex_music.utils.schema_mismatch").setLevel(logging.ERROR)
+
     # Сервисы: API живёт в asyncio-потоке, в QML — синглтоны YaMusic.Core.Auth / .Library
     runner = AsyncRunner()
     auth = Auth(runner)
@@ -104,6 +111,9 @@ def main(argv: list[str] | None = None) -> int:
     # движок загрузил модуль YaMusic.Core, ломает разрешение типов во всём QML.
     player = Player(runner, auth)
     qmlRegisterSingletonInstance(Player, "YaMusic.Core", 1, 0, "Player", player)
+    wave = Wave(runner, auth, player, library)
+    qmlRegisterSingletonInstance(Wave, "YaMusic.Core", 1, 0, "Wave", wave)
+    reporter = PlayReporter(runner, auth, player)  # noqa: F841
 
     engine = QQmlApplicationEngine()
     nam_factory = CachingNamFactory()  # ссылка должна жить столько же, сколько движок
@@ -116,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
     theme_engine.bind_settings(app_settings, app.styleHints())
 
     player.bind_settings(app_settings)
+    wave.bind_settings(app_settings)
     # Цвет приложения — из обложки играющего трека
     player.coverFileChanged.connect(lambda: theme_engine.setCover(player.coverFile))
     if args.light:  # разовое переопределение для разработки, в настройки не пишется

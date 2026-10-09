@@ -17,7 +17,6 @@ TrackListPage {
     heroImage: cover
     subtitle: model && !(model.loading && model.count === 0) ? model.count + " " + plural(model.count) : ""
     model: Library.playlistTracks(uid, kind)
-    likedMarks: true
     emptyIcon: "queue_music"
     emptyTitle: "В плейлисте нет треков"
 

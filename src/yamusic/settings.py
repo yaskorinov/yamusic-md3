@@ -16,6 +16,7 @@ SCHEMA: dict[str, tuple[type, object]] = {
     "accentFromCover": (bool, True),       # перекрашивать приложение под обложку
     "customSeed": (str, "#FFCC00"),        # seed, когда обложки нет или accentFromCover выключен
     "windowButtons": (bool, False),        # кнопки окна для не-тайлинговых DE
+    "nowPlayingBlur": (float, 1.0),        # размытие фона полноэкранного плеера, 0..1
     # Раскладка
     "rightPanelOpen": (bool, False),
     "rightPanelTab": (str, "queue"),       # queue | lyrics
@@ -25,6 +26,7 @@ SCHEMA: dict[str, tuple[type, object]] = {
     # Воспроизведение
     "quality": (str, "lossless"),          # lossless | high | low
     "volume": (float, 0.7),
+    "waveSeeds": (str, ""),                # выбранные настройки «Моей волны» (сиды через запятую)
     # Поведение
     "wheelStep": (int, 150),
 }

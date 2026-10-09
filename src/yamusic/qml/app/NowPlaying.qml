@@ -84,28 +84,33 @@ Item {
 
         // Фон: размытая обложка + вуаль цвета темы
         Rectangle { anchors.fill: parent; color: Theme.surface }
-        // Обложка 12×12, растянутая на окно: билинейное масштабирование само даёт мягкий градиент,
-        // MultiEffect только доразмывает. Края вынесены за окно — у размытия они тёмные/прозрачные.
+        // Размытие (Settings.nowPlayingBlur, 0..1) — в два приёма: обложка грузится уменьшенной
+        // (на максимуме 12×12 — билинейное растяжение само даёт мягкий градиент), MultiEffect доразмывает.
+        // Края вынесены за окно — у размытия они тёмные/прозрачные.
         Image {
             id: bgCover
+            readonly property real blur: Math.max(0, Math.min(1, Settings.nowPlayingBlur))
             anchors.fill: parent
-            source: Player.cover
+            source: Player.cover.replace("400x400", blur < 0.5 ? "800x800" : "400x400")
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             smooth: true
             visible: false
-            sourceSize: Qt.size(12, 12)
+            sourceSize: {
+                const side = Math.round(12 + 788 * Math.pow(1 - blur, 3))
+                return Qt.size(side, side)
+            }
         }
         MultiEffect {
             anchors.fill: parent
-            anchors.margins: -120
+            anchors.margins: bgCover.blur > 0 ? -120 : 0
             source: bgCover
             visible: bgCover.status === Image.Ready
             autoPaddingEnabled: false
-            blurEnabled: true
+            blurEnabled: bgCover.blur > 0
             blurMax: 64
-            blur: 1.0
-            saturation: 0.1
+            blur: bgCover.blur
+            saturation: 0.1 + 0.4 * (1 - bgCover.blur)
         }
         Rectangle {
             anchors.fill: parent
@@ -116,21 +121,22 @@ Item {
         // Блокирует клики по приложению под плеером
         MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; onWheel: wheel => wheel.accepted = true }
 
-        // Верхняя панель
+        // Верхняя панель: свернуть + переключатель очередь/текст (над левой колонкой)
         RowLayout {
             id: topRow
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.margins: 16
+            spacing: 12
             IconButton { icon: "keyboard_arrow_down"; style: "tonal"; onClicked: root.hide() }
-            Item { Layout.fillWidth: true }
             ButtonGroup {
                 model: [{ icon: "title" }, { icon: "queue_music" }]
                 autoSelect: false
                 currentIndex: root.tab === "lyrics" ? 0 : 1
                 onActivated: i => root.tab = i === 0 ? "lyrics" : "queue"
             }
+            Item { Layout.fillWidth: true }
         }
 
         RowLayout {
@@ -141,8 +147,9 @@ Item {
             anchors.margins: 32
             anchors.topMargin: 8
             spacing: 48
+            layoutDirection: Qt.RightToLeft   // плеер справа, очередь/текст слева
 
-            // ---- Левая колонка: обложка и управление ----
+            // ---- Колонка плеера (справа): обложка и управление ----
             ColumnLayout {
                 id: left
                 Layout.fillHeight: true
@@ -229,6 +236,7 @@ Item {
                     IconButton {
                         icon: "shuffle"; size: "m"
                         checkable: true; autoToggle: false; checked: Player.shuffle
+                        enabled: Player.source !== "wave"
                         style: Player.shuffle ? "tonal" : "standard"
                         onClicked: Player.shuffle = !Player.shuffle
                     }
@@ -249,24 +257,35 @@ Item {
                     }
                 }
 
+                // Не рекомендовать · громкость · лайк
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
                     Layout.topMargin: 4
                     spacing: 12
-                    Icon { name: Player.volume > 0.5 ? "volume_up" : Player.volume > 0 ? "volume_down" : "volume_off"; size: 22 }
+                    IconButton {
+                        icon: "thumb_down"
+                        enabled: Player.hasTrack
+                        onClicked: { Library.dislike(Player.track); Player.next() }
+                    }
+                    Icon {
+                        Layout.leftMargin: 8
+                        name: Player.volume > 0.5 ? "volume_up" : Player.volume > 0 ? "volume_down" : "volume_off"
+                        size: 22
+                    }
                     Slider {
-                        Layout.preferredWidth: 260
+                        Layout.preferredWidth: 220
                         value: Player.volume
                         trackHeight: 14
                         handleHeight: 36
                         onMoved: v => Player.volume = v
                     }
+                    LikeButton { Layout.leftMargin: 8; track: Player.track }
                 }
 
                 Item { Layout.fillHeight: true }
             }
 
-            // ---- Правая колонка: очередь / текст ----
+            // ---- Колонка очереди / текста (слева) ----
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -303,6 +322,8 @@ Item {
                         explicit: model.explicit
                         available: model.available
                         current: index === Player.currentIndex
+                        liked: Library.likesRevision >= 0 && Library.isLiked(model.trackId)
+                        onLikeClicked: Library.toggleLike(Player.queue.get(index))
                         wide: false
                         onActivated: Player.playIndex(index)
                     }

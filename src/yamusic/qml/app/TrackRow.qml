@@ -22,6 +22,7 @@ Item {
     property bool wide: width > 720
 
     signal activated()                 // клик — воспроизвести
+    signal likeClicked()               // клик по сердцу
 
     implicitHeight: 64
 
@@ -76,7 +77,8 @@ Item {
                 }
                 Label {
                     visible: root.version !== ""
-                    Layout.fillWidth: true
+                    Layout.fillWidth: implicitWidth > width
+                    Layout.maximumWidth: implicitWidth
                     text: root.version
                     type: "bodyLarge"
                     color: Theme.fgSurfaceVariant
@@ -89,7 +91,7 @@ Item {
                     color: Theme.surfaceContainerHighest
                     Label { anchors.centerIn: parent; text: "E"; type: "labelSmall"; color: Theme.fgSurfaceVariant }
                 }
-                Item { Layout.fillWidth: true; visible: root.version === "" }
+                Item { Layout.fillWidth: true }
             }
             Label {
                 Layout.fillWidth: true
@@ -108,12 +110,28 @@ Item {
             color: Theme.fgSurfaceVariant
         }
 
-        Icon {
-            name: "favorite"
-            size: 20
-            fill: 1
-            color: Theme.primary
-            opacity: root.liked ? 1 : 0
+        // Сердце: залитое у лайкнутых, контур — при наведении на строку
+        Item {
+            implicitWidth: 32
+            implicitHeight: 32
+            visible: root.available
+            Icon {
+                anchors.centerIn: parent
+                name: "favorite"
+                size: 20
+                fill: root.liked ? 1 : 0
+                color: root.liked ? Theme.primary : heartArea.containsMouse ? Theme.fgSurface : Theme.fgSurfaceVariant
+                opacity: root.liked || rowHover.hovered ? 1 : 0
+                scale: heartArea.pressed ? 0.85 : 1
+                Behavior on scale { NumberAnimation { duration: Theme.motion.spatialFast; easing.type: Easing.OutBack } }
+            }
+            StateLayer {
+                id: heartArea
+                anchors.fill: parent
+                radius: width / 2
+                visible: root.liked || rowHover.hovered
+                onClicked: root.likeClicked()
+            }
         }
 
         Label {
@@ -125,7 +143,11 @@ Item {
         }
     }
 
+    HoverHandler { id: rowHover }
+
+    // Под содержимым: клики по сердцу достаются ему, по остальной строке — сюда
     StateLayer {
+        z: -1
         anchors.fill: parent
         radius: Theme.shape.large
         onClicked: root.activated()

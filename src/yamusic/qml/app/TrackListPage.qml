@@ -12,7 +12,6 @@ Item {
     property string subtitle
     property bool showHeader: true
     property var model: null                  // TrackListModel
-    property bool likedMarks: false            // показывать сердечки по Library.isLiked
     property string emptyIcon: "music_note"
     property string emptyTitle: "Здесь пусто"
     property string emptyText: ""
@@ -159,12 +158,13 @@ Item {
             durationMs: model.durationMs
             explicit: model.explicit
             available: model.available
-            liked: page.likedMarks && Library.isLiked(model.trackId)
+            liked: Library.likesRevision >= 0 && Library.isLiked(model.trackId)
             current: model.trackId === Player.trackId
             onActivated: {
                 page.trackActivated(index)
                 Player.playFrom(page.model, index)
             }
+            onLikeClicked: Library.toggleLike(page.model.get(index))
         }
 
         footer: Item {

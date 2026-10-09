@@ -3,6 +3,9 @@
 Без пауз между треками: в плейлисте mpv всегда «текущий + следующий». Ссылка на следующий трек
 запрашивается заранее, mpv переходит на него сам (gapless), а мы по смене playlist-pos двигаем очередь.
 Колбэки mpv приходят из его потока — всё, что трогает Qt, уходит в GUI-поток через runner.call_in_gui.
+
+У очереди есть контекст (откуда она: «Мне нравится», плейлист, волна) — для учёта прослушиваний,
+и у волны — «подкормка» (feeder): когда впереди остаётся мало треков, плеер просит догрузить ещё.
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ CODEC_LABEL = {"flac": "FLAC", "flac-mp4": "FLAC", "aac-mp4": "AAC", "aac": "AAC
                "he-aac-mp4": "HE-AAC", "he-aac": "HE-AAC", "mp3": "MP3"}
 POSITION_EMIT_INTERVAL = 0.2  # с: QML сглаживает прогресс между обновлениями
 PREFETCH_DELAY_MS = 2500
+FEED_AHEAD = 3   # волна: сколько треков держать впереди текущего
 
 
 def mpv_volume(ui: float) -> float:
@@ -48,6 +52,10 @@ class Player(QObject):
     queueChanged = Signal()
     coverFileChanged = Signal()
     errorChanged = Signal()
+    # Для учёта прослушиваний и обратной связи волны (только Python):
+    # {"track", "context"} и {"track", "context", "played", "end", "natural"} (секунды)
+    trackStarted = Signal(object)
+    trackEnded = Signal(object)
 
     def __init__(self, runner: AsyncRunner, auth: Auth, parent: QObject | None = None):
         super().__init__(parent)
@@ -72,6 +80,11 @@ class Player(QObject):
         self._load_token = 0                # отменяет устаревшие ответы resolve
         self._prefetched_for = -1           # индекс очереди, чья ссылка уже стоит в mpv вторым номером
         self._http: aiohttp.ClientSession | None = None
+        self._context: dict[str, str] = {}  # {"type": wave|liked|playlist|…, "from": …, "playlistId": …}
+        self._feeder = None                 # callable() — догрузить треки (волна)
+        self._played = 0.0                  # сколько секунд текущего трека реально проиграно
+        self._last_time: float | None = None
+        self._track_live = False            # trackStarted отправлен, trackEnded — ещё нет
         # Состояние mpv — из наблюдателей; синхронные запросы к libmpv из GUI-потока блокируются,
         # пока mpv открывает сетевой поток, и подвешивают анимации (видно на смене темы).
         self._paused = False
@@ -204,7 +217,7 @@ class Player(QObject):
         return self._shuffle
 
     def _set_shuffle(self, value: bool) -> None:
-        if value == self._shuffle:
+        if value == self._shuffle or self.source == "wave":
             return
         self._shuffle = value
         current = self._order[self._pos] if 0 <= self._pos < len(self._order) else -1
@@ -240,19 +253,61 @@ class Player(QObject):
     def errorText(self) -> str:
         return self._error
 
+    @Property(str, notify=queueChanged)
+    def source(self) -> str:
+        """Тип очереди: wave | liked | playlist | '' — волна, например, без перемешивания."""
+        return self._context.get("type", "")
+
     # --- управление ------------------------------------------------------
 
     @Slot(QObject, int)
     def playFrom(self, model: QObject, row: int) -> None:
         """Поставить в очередь всю модель (TrackListModel) и начать с row."""
         items = [dict(i) for i in model.items()] if hasattr(model, "items") else []
-        if not items:
+        self.play_items(items, row, dict(getattr(model, "context", {}) or {}))
+
+    def play_items(self, items: list[dict], row: int, context: dict[str, str], feeder=None) -> None:
+        if not items or not 0 <= row < len(items):
             return
+        self._context = context
+        self._feeder = feeder
         self._queue.reset(items)
         self._order = self._make_order(row)
         self._pos = self._order.index(row)
         self.queueChanged.emit()
         self._start_current()
+
+    def append_tracks(self, items: list[dict]) -> None:
+        """Догрузка в конец очереди (волна). Если очередь уже встала на последнем треке — играем дальше."""
+        if not items:
+            return
+        stalled = bool(self._track) and self._idle_active and self._pos == len(self._order) - 1
+        first = self._queue.count
+        self._queue.append(items)
+        self._order.extend(range(first, first + len(items)))
+        self.queueChanged.emit()
+        if stalled:
+            self.next()
+        else:
+            self._prefetch_next()
+
+    def replace_upcoming(self, items: list[dict]) -> None:
+        """Заменить всё после текущего трека (волна с новыми настройками). Без перемешивания: _order — 0..n-1."""
+        current = self.currentIndex
+        if current < 0:
+            return
+        self._queue.remove(current + 1, self._queue.count - current - 1)
+        self._order = list(range(self._queue.count))
+        self._prefetched_for = -1
+        self._drop_queued()
+        self.append_tracks(items)
+
+    def owns_feeder(self, feeder) -> bool:
+        return self._feeder is feeder
+
+    @property
+    def played_seconds(self) -> float:
+        return self._played
 
     @Slot(QObject)
     def shuffleFrom(self, model: QObject) -> None:
@@ -326,14 +381,18 @@ class Player(QObject):
 
     @Slot()
     def cycleRepeat(self) -> None:
-        self.repeat = {"off": "all", "all": "one", "one": "off"}[self._repeat]
+        # У волны нет «конца» — повтор всей очереди не имеет смысла
+        if self.source == "wave":
+            self.repeat = "off" if self._repeat != "off" else "one"
+        else:
+            self.repeat = {"off": "all", "all": "one", "one": "off"}[self._repeat]
 
     # --- внутреннее: очередь ----------------------------------------------
 
     def _make_order(self, first: int) -> list[int]:
         n = self._queue.count
         order = list(range(n))
-        if self._shuffle and n > 1:
+        if self._shuffle and n > 1 and self.source != "wave":
             rest = [i for i in order if i != first]
             random.shuffle(rest)
             order = ([first] if first >= 0 else []) + rest
@@ -346,6 +405,8 @@ class Player(QObject):
             return self._pos
         if self._pos + 1 < len(self._order):
             return self._pos + 1
+        if self.source == "wave":
+            return None                    # ждём догрузки
         return 0 if self._repeat == "all" or manual else None
 
     def _start_current(self) -> None:
@@ -450,12 +511,34 @@ class Player(QObject):
     # --- внутреннее: события mpv (уже в GUI-потоке) -------------------------
 
     def _set_track(self, track: dict[str, object]) -> None:
+        self._end_current()
         self._track = dict(track)
         self._duration_ms = int(track.get("durationMs") or 0)
         self._position_ms = 0
+        self._played = 0.0
+        self._last_time = None
         self._set_error("")
         self.trackChanged.emit()
         self.positionChanged.emit()
+        self._track_live = True
+        self.trackStarted.emit({"track": self._track, "context": self._context})
+        self._feed()
+
+    def _end_current(self) -> None:
+        """Сообщить о конце текущего трека (смена трека или очередь кончилась)."""
+        if not self._track_live:
+            return
+        self._track_live = False
+        end = self._position_ms / 1000
+        duration = self._duration_ms / 1000
+        self.trackEnded.emit({
+            "track": self._track, "context": self._context, "played": round(self._played, 1),
+            "end": round(end, 1), "natural": duration > 0 and end >= duration - 3,
+        })
+
+    def _feed(self) -> None:
+        if self._feeder is not None and len(self._order) - 1 - self._pos < FEED_AHEAD:
+            self._feeder()
 
     def _set_cover_file(self, path: str) -> None:
         if path != self._cover_file:
@@ -468,6 +551,8 @@ class Player(QObject):
 
     def _on_idle(self, idle) -> None:
         self._idle_active = bool(idle)
+        if self._idle_active and self._track_live and self._played > 0:
+            self._end_current()            # очередь доиграла до конца
         self._update_playing()
 
     def _on_buffering(self, value) -> None:
@@ -484,6 +569,9 @@ class Player(QObject):
     def _on_time(self, seconds) -> None:
         if seconds is None:
             return
+        last, self._last_time = self._last_time, seconds
+        if last is not None and 0 < seconds - last < 1.0:   # перемотка не считается прослушиванием
+            self._played += seconds - last
         now = time.monotonic()
         if now - self._last_emit < POSITION_EMIT_INTERVAL:
             return
