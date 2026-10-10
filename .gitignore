@@ -8,3 +8,12 @@ docs/reference/*.mp4
 docs/reference/screens/
 docs/reference/motion/
 docs/reference/covers/
+
+# Rust
+target/
+
+# сборка Windows: libmpv (120 МБ — больше лимита GitHub) кладётся в корень вручную или build_windows.ps1
+/libmpv-2.dll
+/mpv-2.dll
+# старая сборка PyInstaller
+/build/

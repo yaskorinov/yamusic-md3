@@ -1,298 +1,262 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 <#
 .SYNOPSIS
-    Сборка YaMusic для Windows: зависимости, PyInstaller-пакет и Inno Setup инсталлер.
+    Сборка YaMusic (Rust + Qt 6.12) для Windows: exe, портативная папка и инсталлер Inno Setup.
 
 .DESCRIPTION
-    Что делает скрипт:
-    1. Проверяет наличие uv (менеджер Python-окружений).
-    2. Находит или скачивает libmpv-2.dll (нужна для python-mpv).
-    3. Создаёт виртуальное окружение с Python 3.14 и ставит все зависимости.
-    4. Запускает PyInstaller → dist\yamusic\ (папка с exe и всем нужным).
-    5. Собирает инсталлер через Inno Setup → dist\YaMusic-Setup.exe.
+    1. Находит Qt 6.12 MSVC (qmake6.exe, windeployqt.exe) и выставляет QMAKE/PATH для cxx-qt.
+    2. Находит или скачивает libmpv-2.dll (shinchiro/mpv-winbuild-cmake, mpv-dev-x86_64).
+    3. cargo build --release -p yamusic (или -CargoProfile debug).
+    4. Собирает target\dist\yamusic\: yamusic.exe, qml\ (src\yamusic\qml), assets\ (шрифты, значок),
+       Qt через windeployqt --qmldir, рантайм MSVC, libmpv-2.dll.
+    5. Инсталлер через Inno Setup → target\dist\YaMusic-<версия>-Setup.exe.
 
-.PARAMETER SkipMpv
-    Пропустить поиск/скачивание libmpv-2.dll (если DLL уже лежит в корне проекта).
+.PARAMETER QtDir
+    Префикс Qt (каталог с bin\qmake6.exe). По умолчанию: $env:QTDIR, каталог $env:QMAKE,
+    C:\Qt\6.12.0\msvc2022_64, ~\Qt\6.12.0\msvc2022_64, ~\Qt\6.12.0.
 
-.PARAMETER DevOnly
-    Только установить зависимости, без сборки PyInstaller и инсталлера.
+.PARAMETER MpvDll
+    Путь к libmpv-2.dll (или mpv-2.dll). По умолчанию — из корня проекта, иначе скачивается.
+
+.PARAMETER Version
+    Версия в инсталлере. По умолчанию — [workspace.package] version из Cargo.toml.
+
+.PARAMETER OutDir
+    Куда класть результат. По умолчанию target\dist.
+
+.PARAMETER CargoProfile
+    Профиль cargo: release (по умолчанию) или debug.
+
+.PARAMETER SkipBuild
+    Не запускать cargo (взять готовый target\<профиль>\yamusic.exe).
 
 .PARAMETER SkipInstaller
-    Пропустить шаг Inno Setup (только PyInstaller).
+    Без шага Inno Setup.
+
+.PARAMETER Portable
+    Дополнительно упаковать папку в YaMusic-<версия>-windows-x64-portable.zip.
 #>
 param(
-    [switch]$SkipMpv,
-    [switch]$DevOnly,
-    [switch]$SkipInstaller
+    [string]$QtDir,
+    [string]$MpvDll,
+    [string]$Version,
+    [string]$OutDir,
+    [ValidateSet("release", "debug")]
+    [string]$CargoProfile = "release",
+    [switch]$SkipBuild,
+    [switch]$SkipInstaller,
+    [switch]$Portable
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 
 $ProjectRoot = $PSScriptRoot
+if (-not $OutDir) { $OutDir = Join-Path $ProjectRoot "target\dist" }
+$OutDir = [IO.Path]::GetFullPath($OutDir)
+$Stage = Join-Path $OutDir "yamusic"
 
 function Write-Step { param([string]$msg) Write-Host "`n==> $msg" -ForegroundColor Cyan }
 function Write-Ok   { param([string]$msg) Write-Host "    OK: $msg" -ForegroundColor Green }
 function Write-Warn { param([string]$msg) Write-Host "    WARN: $msg" -ForegroundColor Yellow }
 function Abort      { param([string]$msg) Write-Host "`nОШИБКА: $msg" -ForegroundColor Red; exit 1 }
 
-# ─── 1. Проверяем uv ──────────────────────────────────────────────────────────
-Write-Step "Проверка uv"
-if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-    Write-Host "uv не найден. Устанавливаем..." -ForegroundColor Yellow
-    Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
-    $env:PATH = "$env:USERPROFILE\.local\bin;$env:PATH"
-    if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-        Abort "uv не удалось установить. Поставьте вручную: https://docs.astral.sh/uv/getting-started/installation/"
+function Find-SevenZip {
+    $cmd = Get-Command 7z -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    foreach ($p in @("C:\Program Files\7-Zip\7z.exe", "C:\Program Files (x86)\7-Zip\7z.exe")) {
+        if (Test-Path $p) { return $p }
+    }
+    return $null
+}
+
+# ─── Версия ───────────────────────────────────────────────────────────────────
+if (-not $Version) {
+    $cargoToml = Get-Content (Join-Path $ProjectRoot "Cargo.toml") -Raw
+    if ($cargoToml -match '(?ms)^\[workspace\.package\].*?^version\s*=\s*"([^"]+)"') {
+        $Version = $Matches[1]
+    } else {
+        $Version = "0.0.0"
     }
 }
-Write-Ok (uv --version)
+$Version = $Version.TrimStart("v")
+Write-Host "YaMusic $Version → $OutDir" -ForegroundColor White
 
-# ─── 2. Ищем / скачиваем mpv-2.dll ───────────────────────────────────────────
-$MpvDll = $null
+# ─── 1. Qt ────────────────────────────────────────────────────────────────────
+Write-Step "Поиск Qt 6.12 (MSVC)"
+$candidates = @()
+if ($QtDir) { $candidates += $QtDir }
+if ($env:QTDIR) { $candidates += $env:QTDIR }
+if ($env:QMAKE) { $candidates += (Split-Path (Split-Path $env:QMAKE)) }
+$candidates += @(
+    "C:\Qt\6.12.0\msvc2022_64",
+    (Join-Path $HOME "Qt\6.12.0\msvc2022_64"),
+    (Join-Path $HOME "Qt\6.12.0")
+)
+$QtDir = $null
+foreach ($c in $candidates) {
+    if ($c -and (Test-Path (Join-Path $c "bin\qmake6.exe"))) { $QtDir = (Resolve-Path $c).Path; break }
+}
+if (-not $QtDir) {
+    Abort ("Qt 6.12 MSVC не найден. Укажите -QtDir или поставьте его:`n" +
+        "    python .github\scripts\install_qt.py --out C:\Qt\6.12.0\msvc2022_64")
+}
+$Qmake = Join-Path $QtDir "bin\qmake6.exe"
+$WinDeployQt = Join-Path $QtDir "bin\windeployqt.exe"
+if (-not (Test-Path $WinDeployQt)) { $WinDeployQt = Join-Path $QtDir "bin\windeployqt6.exe" }
+if (-not (Test-Path $WinDeployQt)) { Abort "windeployqt не найден в $QtDir\bin" }
+$env:QMAKE = $Qmake
+$env:QTDIR = $QtDir
+$env:PATH = "$QtDir\bin;$env:PATH"
+Write-Ok "$QtDir ($(& $Qmake -query QT_VERSION))"
 
-if (-not $SkipMpv) {
-    Write-Step "Поиск mpv-2.dll"
-
-    # 2a. Уже есть в корне проекта? (libmpv-2.dll или mpv-2.dll)
-    $localDll = $null
-    foreach ($name in @("libmpv-2.dll", "mpv-2.dll")) {
-        $candidate = Join-Path $ProjectRoot $name
-        if (Test-Path $candidate) { $localDll = $candidate; break }
-    }
-    if ($localDll) {
-        $MpvDll = $localDll
-        Write-Ok "найдена локально: $MpvDll"
-    }
-
-    # 2b. В PATH (winget/scoop/chocolatey install mpv)?
-    if (-not $MpvDll) {
-        $mpvExe = (Get-Command mpv -ErrorAction SilentlyContinue)?.Source
-        if ($mpvExe) {
-            $mpvDir = Split-Path $mpvExe
-            foreach ($name in @("libmpv-2.dll", "mpv-2.dll")) {
-                $candidate = Join-Path $mpvDir $name
-                if (Test-Path $candidate) { $MpvDll = $candidate; break }
-            }
-            if ($MpvDll) { Write-Ok "найдена рядом с mpv.exe: $MpvDll" }
-        }
-    }
-
-    # 2c. Скачиваем mpv-dev с GitHub (shinchiro/mpv-winbuild-cmake) — там есть libmpv-2.dll
-    if (-not $MpvDll) {
-        Write-Warn "libmpv-2.dll не найдена, скачиваем mpv-dev с GitHub..."
-
-        $apiUrl  = "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
-        try {
-            $release = Invoke-RestMethod -Uri $apiUrl -Headers @{ "User-Agent" = "YaMusic-build" }
-        } catch {
-            Abort "Не удалось получить релиз mpv с GitHub: $_`nСкачайте libmpv-2.dll вручную и положите в корень проекта."
-        }
-
-        # mpv-dev-x86_64-*.7z содержит libmpv-2.dll
-        $asset = $release.assets | Where-Object { $_.name -match "^mpv-dev-x86_64-\d+.*\.7z$" -and $_.name -notmatch "v3" } | Select-Object -First 1
-        if (-not $asset) {
-            Abort "Не нашли mpv-dev-x86_64 архив в релизе. Скачайте libmpv-2.dll вручную."
-        }
-
-        $archivePath = Join-Path $env:TEMP "mpv_dev.7z"
-        Write-Host "    Скачиваем $($asset.name) (~30 МБ)..." -ForegroundColor Gray
-        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archivePath -UseBasicParsing
-
-        $sevenZip = (Get-Command 7z -ErrorAction SilentlyContinue)?.Source
-        if (-not $sevenZip) { $sevenZip = "C:\Program Files\7-Zip\7z.exe" }
-        if (-not (Test-Path $sevenZip)) {
-            try { winget install -e --id 7zip.7zip --silent --accept-package-agreements --accept-source-agreements 2>$null } catch {}
-            $sevenZip = "C:\Program Files\7-Zip\7z.exe"
-        }
-        if (-not (Test-Path $sevenZip)) {
-            Abort "Нужен 7-Zip. Установите: winget install 7zip.7zip"
-        }
-
-        $extractDir = Join-Path $env:TEMP "mpv_dev_extracted"
-        New-Item -ItemType Directory -Force $extractDir | Out-Null
-        & $sevenZip x $archivePath "-o$extractDir" "libmpv-2.dll" -y 2>&1 | Out-Null
-
-        $dll = Get-ChildItem -Recurse $extractDir -Filter "libmpv-2.dll" | Select-Object -First 1
-        if (-not $dll) { Abort "libmpv-2.dll не найдена в скачанном архиве." }
-        $destDll = Join-Path $ProjectRoot "libmpv-2.dll"
-        Copy-Item $dll.FullName -Destination $destDll
-        $MpvDll = $destDll
-        Write-Ok "libmpv-2.dll скачана: $MpvDll"
-
-        Remove-Item $archivePath -Force
-        Remove-Item $extractDir -Recurse -Force
-    }
+# ─── 2. libmpv-2.dll ──────────────────────────────────────────────────────────
+Write-Step "Поиск libmpv-2.dll"
+if ($MpvDll) {
+    if (-not (Test-Path $MpvDll)) { Abort "Нет файла $MpvDll" }
+    $MpvDll = (Resolve-Path $MpvDll).Path
 } else {
-    Write-Warn "Поиск libmpv-2.dll пропущен (--SkipMpv). Убедитесь, что DLL в корне проекта или в PATH."
     foreach ($name in @("libmpv-2.dll", "mpv-2.dll")) {
         $candidate = Join-Path $ProjectRoot $name
         if (Test-Path $candidate) { $MpvDll = $candidate; break }
     }
-    if (-not $MpvDll) { $MpvDll = Join-Path $ProjectRoot "libmpv-2.dll" }
 }
-
-# ─── 3. Устанавливаем зависимости (uv sync) ───────────────────────────────────
-Write-Step "Установка Python 3.14 и зависимостей через uv"
-Push-Location $ProjectRoot
-try {
-    uv sync --python 3.14
-    if ($LASTEXITCODE -ne 0) { Abort "uv sync завершился с ошибкой" }
-    Write-Ok "зависимости установлены"
-} finally {
-    Pop-Location
-}
-
-if ($DevOnly) {
-    Write-Host "`n✓ Готово (dev-режим). Запуск:" -ForegroundColor Green
-    Write-Host "    uv run yamusic" -ForegroundColor White
-    exit 0
-}
-
-# ─── 4. Ставим PyInstaller в venv ─────────────────────────────────────────────
-Write-Step "Установка PyInstaller"
-Push-Location $ProjectRoot
-try {
-    uv pip install pyinstaller --python 3.14
-    if ($LASTEXITCODE -ne 0) { Abort "Не удалось установить PyInstaller" }
-    Write-Ok "PyInstaller установлен"
-} finally {
-    Pop-Location
-}
-
-# ─── 5. Конвертируем иконку SVG → ICO (если есть Pillow/Wand, иначе — без иконки) ──
-$IcoPath = Join-Path $ProjectRoot "yamusic.ico"
-if (-not (Test-Path $IcoPath)) {
-    Write-Step "Подготовка иконки"
-    $svgPath = Join-Path $ProjectRoot "src\yamusic\assets\yamusic.svg"
+if (-not $MpvDll) {
+    Write-Warn "не найдена, скачиваем mpv-dev-x86_64 (shinchiro/mpv-winbuild-cmake)…"
+    $headers = @{ "User-Agent" = "yamusic-build" }
+    if ($env:GITHUB_TOKEN) { $headers["Authorization"] = "Bearer $env:GITHUB_TOKEN" }
+    $release = Invoke-RestMethod -Headers $headers `
+        -Uri "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
+    # обычная сборка, не -v3 (та требует AVX2)
+    $asset = $release.assets | Where-Object { $_.name -match '^mpv-dev-x86_64-\d{8}-git-.*\.7z$' } |
+        Select-Object -First 1
+    if (-not $asset) { Abort "В последнем релизе нет архива mpv-dev-x86_64." }
+    $sevenZip = Find-SevenZip
+    if (-not $sevenZip) { Abort "Нужен 7-Zip (winget install 7zip.7zip)." }
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("mpv-dev-" + [guid]::NewGuid())
+    New-Item -ItemType Directory -Force $tmp | Out-Null
     try {
-        uv run --python 3.14 python -c @"
-from PySide6.QtGui import QGuiApplication, QIcon, QPixmap
-import sys, os
-app = QGuiApplication(sys.argv)
-pm = QPixmap(r'$svgPath')
-if not pm.isNull():
-    pm.scaled(256, 256).save(r'$IcoPath'.replace('.ico', '.png'))
-"@
-        # Если есть Pillow — конвертируем PNG → ICO
-        uv run --python 3.14 python -c @"
-try:
-    from PIL import Image
-    img = Image.open(r'$($IcoPath -replace '\.ico$', '.png')')
-    img.save(r'$IcoPath', sizes=[(16,16),(32,32),(48,48),(128,128),(256,256)])
-    print('ico ok')
-except ImportError:
-    pass
-"@ 2>$null
-    } catch {}
-    if (-not (Test-Path $IcoPath)) {
-        Write-Warn "Иконка .ico не создана — сборка продолжится без неё."
-        $IcoPath = $null
+        $archive = Join-Path $tmp $asset.name
+        Write-Host "    $($asset.name)" -ForegroundColor Gray
+        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive
+        & $sevenZip e $archive "-o$tmp" "libmpv-2.dll" -r -y | Out-Null
+        if ($LASTEXITCODE -ne 0) { Abort "7-Zip не распаковал $($asset.name)" }
+        $dll = Join-Path $tmp "libmpv-2.dll"
+        if (-not (Test-Path $dll)) { Abort "libmpv-2.dll нет в архиве $($asset.name)" }
+        $MpvDll = Join-Path $ProjectRoot "libmpv-2.dll"
+        Copy-Item $dll $MpvDll -Force
+    } finally {
+        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
+Write-Ok $MpvDll
 
-# ─── 6. Патчим spec-файл: путь к mpv-2.dll ────────────────────────────────────
-Write-Step "Подготовка yamusic.spec"
-$specPath = Join-Path $ProjectRoot "yamusic.spec"
-$specContent = Get-Content $specPath -Raw
+# ─── 3. cargo build ───────────────────────────────────────────────────────────
+$Exe = Join-Path $ProjectRoot "target\$CargoProfile\yamusic.exe"
+if (-not $SkipBuild) {
+    Write-Step "cargo build ($CargoProfile) -p yamusic"
+    if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
+        Abort "cargo не найден. Поставьте Rust: https://rustup.rs (toolchain stable-x86_64-pc-windows-msvc)"
+    }
+    Push-Location $ProjectRoot
+    try {
+        if ($CargoProfile -eq "release") { cargo build --release -p yamusic } else { cargo build -p yamusic }
+        if ($LASTEXITCODE -ne 0) { Abort "cargo build завершился с ошибкой" }
+    } finally {
+        Pop-Location
+    }
+}
+if (-not (Test-Path $Exe)) { Abort "Нет $Exe" }
+Write-Ok $Exe
 
-# Заменяем заглушку пути DLL на реальный путь
-if ($MpvDll -and (Test-Path $MpvDll)) {
-    $escaped = $MpvDll -replace '\\', '\\\\'
-    $dllName = Split-Path $MpvDll -Leaf
-    $specContent = $specContent -replace '"libmpv-2\.dll"', "`"$escaped`""
-    Write-Ok "путь к $dllName прописан в spec"
+# ─── 4. Папка дистрибутива ────────────────────────────────────────────────────
+Write-Step "Сборка $Stage"
+if (Test-Path $Stage) { Remove-Item $Stage -Recurse -Force }
+New-Item -ItemType Directory -Force $Stage | Out-Null
+Copy-Item $Exe $Stage
+
+# QML и ресурсы — рядом с exe: движок ищет <exe>\qml, assets — соседний каталог
+$srcQml = Join-Path $ProjectRoot "src\yamusic\qml"
+$srcAssets = Join-Path $ProjectRoot "src\yamusic\assets"
+Copy-Item $srcQml (Join-Path $Stage "qml") -Recurse
+Get-ChildItem (Join-Path $Stage "qml") -Recurse -Directory -Filter "__pycache__" |
+    Remove-Item -Recurse -Force
+$assets = Join-Path $Stage "assets"
+New-Item -ItemType Directory -Force $assets | Out-Null
+Copy-Item (Join-Path $srcAssets "fonts") (Join-Path $assets "fonts") -Recurse   # fonts-src (исходники шрифтов) не нужен
+Copy-Item (Join-Path $srcAssets "yamusic.svg") $assets
+
+$deployArgs = @("--qmldir", $srcQml, "--no-opengl-sw", "--no-compiler-runtime")
+if ($CargoProfile -eq "release") { $deployArgs = @("--release") + $deployArgs }
+& $WinDeployQt @deployArgs (Join-Path $Stage "yamusic.exe")
+if ($LASTEXITCODE -ne 0) { Abort "windeployqt завершился с ошибкой $LASTEXITCODE" }
+Write-Ok "Qt разложен windeployqt"
+
+# Рантайм MSVC (vcruntime140*.dll, msvcp140*.dll) кладём рядом с exe — без vc_redist у пользователя
+$vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+$crtDir = $null
+if (Test-Path $vswhere) {
+    $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+        -property installationPath | Select-Object -First 1
+    if ($vs) {
+        $crtDir = Get-ChildItem (Join-Path $vs "VC\Redist\MSVC") -Directory -ErrorAction SilentlyContinue |
+            Sort-Object { try { [version]$_.Name } catch { [version]"0.0" } } -Descending |
+            ForEach-Object { Get-ChildItem (Join-Path $_.FullName "x64") -Directory -Filter "Microsoft.VC*.CRT" -ErrorAction SilentlyContinue } |
+            Select-Object -First 1
+    }
+}
+if ($crtDir) {
+    Copy-Item (Join-Path $crtDir.FullName "*.dll") $Stage
+    Write-Ok "рантайм MSVC: $($crtDir.FullName)"
 } else {
-    Write-Warn "libmpv-2.dll не найдена — exe потребует наличие DLL в PATH или рядом с собой."
-    $specContent = $specContent -replace '\("libmpv-2\.dll", "\."[^)]*\),', ""
+    Write-Warn "рантайм MSVC не найден — на чистой системе понадобится Visual C++ Redistributable"
 }
 
-# Иконка
-if ($IcoPath -and (Test-Path $IcoPath)) {
-    $escapedIco = $IcoPath -replace '\\', '\\\\'
-    $specContent = $specContent -replace 'icon=str\(.*?\),', "icon=r'$escapedIco',"
-}
+Copy-Item $MpvDll (Join-Path $Stage "libmpv-2.dll")
+Write-Ok "libmpv-2.dll"
 
-Set-Content $specPath $specContent -Encoding UTF8
-Write-Ok "spec обновлён"
+$sizeMB = [math]::Round(((Get-ChildItem $Stage -Recurse -File | Measure-Object Length -Sum).Sum) / 1MB, 0)
+Write-Ok "папка готова: $Stage ($sizeMB МБ)"
 
-# ─── 7. Запускаем PyInstaller ─────────────────────────────────────────────────
-Write-Step "Сборка PyInstaller (dist\yamusic\)"
-Push-Location $ProjectRoot
-try {
-    uv run --python 3.14 pyinstaller yamusic.spec --clean --noconfirm
-    if ($LASTEXITCODE -ne 0) { Abort "PyInstaller завершился с ошибкой" }
-} finally {
-    Pop-Location
-}
-
-$distDir = Join-Path $ProjectRoot "dist\yamusic"
-if (-not (Test-Path (Join-Path $distDir "yamusic.exe"))) {
-    Abort "yamusic.exe не найден после сборки."
-}
-
-# ─── 8. Копируем libmpv-2.dll в dist (на случай, если PyInstaller не подхватил) ──
-if ($MpvDll -and (Test-Path $MpvDll)) {
-    $dllName = Split-Path $MpvDll -Leaf
-    $dllDest = Join-Path $distDir $dllName
-    if (-not (Test-Path $dllDest)) {
-        Copy-Item $MpvDll $dllDest
-        Write-Ok "$dllName скопирована в dist"
-    }
+if ($Portable) {
+    $zip = Join-Path $OutDir "YaMusic-$Version-windows-x64-portable.zip"
+    if (Test-Path $zip) { Remove-Item $zip -Force }
+    Compress-Archive -Path (Join-Path $Stage "*") -DestinationPath $zip -CompressionLevel Optimal
+    Write-Ok "портативный архив: $zip"
 }
 
 if ($SkipInstaller) {
-    Write-Host "`n✓ PyInstaller готов: $distDir" -ForegroundColor Green
-    Write-Host "  --SkipInstaller: шаг Inno Setup пропущен." -ForegroundColor Gray
+    Write-Host "`nГотово: $Stage\yamusic.exe (Inno Setup пропущен)" -ForegroundColor Green
     exit 0
 }
 
-# ─── 9. Находим / устанавливаем Inno Setup ────────────────────────────────────
+# ─── 5. Inno Setup ────────────────────────────────────────────────────────────
 Write-Step "Поиск Inno Setup"
 $iscc = $null
+$isccCmd = Get-Command ISCC -ErrorAction SilentlyContinue
 foreach ($candidate in @(
+    $(if ($isccCmd) { $isccCmd.Source }),
     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
     "C:\Program Files\Inno Setup 6\ISCC.exe",
-    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
-    (Get-Command ISCC -ErrorAction SilentlyContinue)?.Source
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
 )) {
     if ($candidate -and (Test-Path $candidate)) { $iscc = $candidate; break }
 }
-
 if (-not $iscc) {
-    Write-Warn "Inno Setup не найден, устанавливаем через winget..."
-    try {
-        winget install -e --id JRSoftware.InnoSetup --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
-    } catch {}
-    $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-    if (-not (Test-Path $iscc)) { $iscc = "C:\Program Files\Inno Setup 6\ISCC.exe" }
+    Abort "Inno Setup 6 не найден. Установите: winget install JRSoftware.InnoSetup (или запустите с -SkipInstaller)"
 }
+Write-Ok $iscc
 
-if (-not (Test-Path $iscc)) {
-    Write-Warn "Не удалось найти ISCC.exe после установки."
-    Write-Warn "Установите Inno Setup вручную: winget install JRSoftware.InnoSetup"
-    Write-Host "`n✓ PyInstaller готов: $distDir" -ForegroundColor Yellow
-    exit 0
-}
-Write-Ok "ISCC: $iscc"
+Write-Step "Сборка инсталлера"
+# VersionInfoVersion — только числа: 0.2.0-rc1 → 0.2.0
+$numVersion = ($Version -split '[-+]')[0]
+& $iscc "/Qp" "/DAppVersion=$Version" "/DAppNumVersion=$numVersion" "/DDistDir=$Stage" "/O$OutDir" (Join-Path $ProjectRoot "yamusic.iss")
+if ($LASTEXITCODE -ne 0) { Abort "Inno Setup завершился с ошибкой $LASTEXITCODE" }
 
-# ─── 10. Сборка инсталлера ────────────────────────────────────────────────────
-Write-Step "Сборка инсталлера Inno Setup"
-Push-Location $ProjectRoot
-try {
-    & $iscc "yamusic.iss"
-    if ($LASTEXITCODE -ne 0) { Abort "Inno Setup завершился с ошибкой $LASTEXITCODE" }
-} finally {
-    Pop-Location
-}
-
-$setupExe = Join-Path $ProjectRoot "dist\YaMusic-Setup.exe"
-if (-not (Test-Path $setupExe)) {
-    Abort "YaMusic-Setup.exe не найден после сборки."
-}
+$setupExe = Join-Path $OutDir "YaMusic-$Version-Setup.exe"
+if (-not (Test-Path $setupExe)) { Abort "Нет $setupExe после ISCC" }
 $sizeMB = [math]::Round((Get-Item $setupExe).Length / 1MB, 0)
-Write-Ok "Инсталлер готов: $setupExe ($sizeMB МБ)"
-
-Write-Host "`n✓ Всё готово!" -ForegroundColor Green
-Write-Host "  Инсталлер:  dist\YaMusic-Setup.exe  ($sizeMB МБ)" -ForegroundColor White
-Write-Host "  Portable:   dist\yamusic\yamusic.exe" -ForegroundColor White
+Write-Host "`nГотово:" -ForegroundColor Green
+Write-Host "  Инсталлер:  $setupExe ($sizeMB МБ)" -ForegroundColor White
+Write-Host "  Portable:   $Stage\yamusic.exe" -ForegroundColor White

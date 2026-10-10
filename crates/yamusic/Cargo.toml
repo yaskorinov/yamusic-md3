@@ -1,0 +1,37 @@
+[package]
+name = "yamusic"
+description = "YaMusic — клиент Яндекс Музыки (Qt Quick + Rust)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "yamusic"
+path = "src/main.rs"
+
+[dependencies]
+ym-api.workspace = true
+ym-player.workspace = true
+ym-theme.workspace = true
+ym-lyrics.workspace = true
+ym-services.workspace = true
+ym-platform.workspace = true
+
+cxx.workspace = true
+cxx-qt.workspace = true
+cxx-qt-lib.workspace = true
+
+tokio.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+
+[build-dependencies]
+cxx-qt-build.workspace = true

@@ -1,0 +1,270 @@
+# Сборка всех платформ. Запускается на push/PR в main и вызывается из release.yml (workflow_call).
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: "Версия сборки (тег v1.2.3 или 1.2.3); пусто — из Cargo.toml"
+        type: string
+        required: false
+        default: ""
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  QT_VERSION: "6.12.0"
+  QT_ADDONS: "qtshadertools qtimageformats"
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  meta:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          v="${INPUT_VERSION#v}"
+          if [ -z "$v" ]; then
+            v="$(awk '/^\[workspace\.package\]/{f=1;next} /^\[/{f=0} f && /^version *=/{gsub(/[" ]/,"",$0); split($0,a,"="); print a[2]; exit}' Cargo.toml)"
+          fi
+          [ -n "$v" ] || { echo "не удалось определить версию" >&2; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Версия: $v"
+
+  linux:
+    name: Linux (AppImage)
+    needs: meta
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Системные пакеты
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config p7zip-full patchelf file desktop-file-utils \
+            libmpv-dev libgl-dev libegl-dev libopengl-dev libxkbcommon-dev libxkbcommon-x11-0 \
+            libfontconfig1-dev libfreetype-dev libdbus-1-dev libwayland-dev \
+            libxcb1-dev libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-sync1 libxcb-xkb1 libxcb-xinerama0 \
+            libxcb-glx0 libx11-xcb1
+
+      - name: Кэш Qt
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/Qt/${{ env.QT_VERSION }}/gcc_64
+          key: qt-${{ env.QT_VERSION }}-linux-${{ hashFiles('.github/scripts/install_qt.py') }}
+
+      - name: Qt ${{ env.QT_VERSION }}
+        run: |
+          read -ra addons <<< "$QT_ADDONS"
+          python3 .github/scripts/install_qt.py --host linux --version "$QT_VERSION" \
+            --addons "${addons[@]}" --out "$RUNNER_TEMP/Qt/$QT_VERSION/gcc_64" --github
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: qt-${{ env.QT_VERSION }}
+
+      - name: cargo build
+        run: cargo build --release -p yamusic
+
+      - name: cargo test
+        env:
+          QT_QPA_PLATFORM: offscreen
+          LD_LIBRARY_PATH: ${{ env.QTDIR }}/lib
+        run: cargo test --release --workspace
+
+      - name: AppImage и tar.gz
+        run: bash .github/scripts/package_linux.sh "$VERSION"
+
+      - name: Проверка запуска (снимок окна)
+        continue-on-error: true
+        run: |
+          timeout 90 target/dist/AppDir/AppRun --screenshot "$RUNNER_TEMP/shot.png" --offline --delay 3000
+          test -s "$RUNNER_TEMP/shot.png"
+
+      - name: Снимок
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-linux
+          path: ${{ runner.temp }}/shot.png
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: yamusic-linux
+          path: |
+            target/dist/*.AppImage
+            target/dist/*.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: Windows (Inno Setup)
+    needs: meta
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Кэш Qt
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}\Qt\${{ env.QT_VERSION }}\msvc2022_64
+          key: qt-${{ env.QT_VERSION }}-windows-${{ hashFiles('.github/scripts/install_qt.py') }}
+
+      - name: Qt ${{ env.QT_VERSION }}
+        shell: pwsh
+        run: >
+          python .github/scripts/install_qt.py --host windows --version $env:QT_VERSION
+          --addons $($env:QT_ADDONS -split ' ') --out "$env:RUNNER_TEMP\Qt\$env:QT_VERSION\msvc2022_64" --github
+
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          $paths = @("C:\Program Files (x86)\Inno Setup 6", "C:\Program Files\Inno Setup 6")
+          if (-not ($paths | Where-Object { Test-Path "$_\ISCC.exe" })) {
+            choco install innosetup -y --no-progress
+          }
+          foreach ($p in $paths) { if (Test-Path "$p\ISCC.exe") { $p | Out-File -Append $env:GITHUB_PATH; break } }
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: qt-${{ env.QT_VERSION }}
+
+      - name: Сборка, windeployqt, инсталлер
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./build_windows.ps1 -QtDir $env:QTDIR -Version $env:VERSION -Portable
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: yamusic-windows
+          path: |
+            target/dist/YaMusic-*-Setup.exe
+            target/dist/YaMusic-*-portable.zip
+          if-no-files-found: error
+
+  macos:
+    name: macOS (best effort)
+    needs: meta
+    runs-on: macos-latest
+    continue-on-error: true
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Homebrew
+        run: brew install mpv dylibbundler sevenzip
+
+      - name: Кэш Qt
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/Qt/${{ env.QT_VERSION }}/macos
+          key: qt-${{ env.QT_VERSION }}-macos-${{ hashFiles('.github/scripts/install_qt.py') }}
+
+      - name: Qt ${{ env.QT_VERSION }}
+        run: |
+          read -ra addons <<< "$QT_ADDONS"
+          python3 .github/scripts/install_qt.py --host mac --version "$QT_VERSION" \
+            --addons "${addons[@]}" --out "$RUNNER_TEMP/Qt/$QT_VERSION/macos" --github
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: qt-${{ env.QT_VERSION }}
+
+      - name: cargo build
+        run: cargo build --release -p yamusic
+
+      - name: YaMusic.app и dmg
+        run: bash .github/scripts/package_macos.sh "$VERSION"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: yamusic-macos
+          path: target/dist/*.dmg
+          if-no-files-found: error
+
+  android:
+    name: Android (APK)
+    needs: meta
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v4
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: assembleDebug
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug
+          mkdir -p ../target/dist
+          cp app/build/outputs/apk/debug/app-debug.apk "../target/dist/YaMusic-$VERSION-android-debug.apk"
+
+      # Выпускная сборка — только если в секретах есть ключ (ANDROID_KEYSTORE_BASE64 и пароли).
+      # В build.gradle.kts release подписан debug-ключом, поэтому APK переподписывается apksigner.
+      - name: assembleRelease и подпись
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew :app:assembleRelease
+          ks="$RUNNER_TEMP/release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$ks"
+          bt="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n1)"
+          apk="$(find app/build/outputs/apk/release -name '*.apk' | head -n1)"
+          [ -n "$apk" ] || { echo "нет release APK" >&2; exit 1; }
+          out="../target/dist/YaMusic-$VERSION-android.apk"
+          "$bt/zipalign" -f -p 4 "$apk" "$RUNNER_TEMP/aligned.apk"
+          "$bt/apksigner" sign --ks "$ks" --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" --key-pass env:ANDROID_KEY_PASSWORD \
+            --out "$out" "$RUNNER_TEMP/aligned.apk"
+          "$bt/apksigner" verify --print-certs "$out"
+          rm -f "$ks"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: yamusic-android
+          path: target/dist/*.apk
+          if-no-files-found: error
