@@ -24,3 +24,4 @@ LoadingIndicator 1.0 LoadingIndicator.qml
 SmoothScroll 1.0 SmoothScroll.qml
 ThemeWipe 1.0 ThemeWipe.qml
 Menu 1.0 Menu.qml
+Snackbar 1.0 Snackbar.qml

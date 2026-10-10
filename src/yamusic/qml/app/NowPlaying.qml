@@ -201,6 +201,14 @@ Item {
                     }
                 }
                 property string _lastId: ""
+                TapHandler {
+                    enabled: Player.hasTrack
+                    acceptedButtons: Qt.RightButton
+                    onTapped: (point) => {
+                        const p = left.mapToItem(null, point.position.x, point.position.y)
+                        Catalog.requestTrackMenu(Player.track, p.x, p.y)
+                    }
+                }
                 NumberAnimation {
                     id: infoAnim
                     target: left
@@ -331,6 +339,15 @@ Item {
                         onMoved: v => Player.volume = v
                     }
                     LikeButton { Layout.leftMargin: 8; track: Player.track }
+                    IconButton {
+                        id: bigMore
+                        icon: "more_horiz"
+                        enabled: Player.hasTrack
+                        onClicked: {
+                            const p = bigMore.mapToItem(null, 0, bigMore.height)
+                            Catalog.requestTrackMenu(Player.track, p.x, p.y)
+                        }
+                    }
                 }
 
                 Item { Layout.fillHeight: true }
@@ -389,6 +406,7 @@ Item {
                         current: index === Player.currentIndex
                         liked: Library.likesRevision >= 0 && Library.isLiked(model.trackId)
                         onLikeClicked: Library.toggleLike(Player.queue.get(index))
+                        track: Player.queue.get(index)
                         wide: false
                         onActivated: Player.playIndex(index)
                     }

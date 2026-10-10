@@ -226,6 +226,53 @@ Window {
             artistMenu.refs = refs
             artistMenu.open(refs.map(r => ({ text: r.name, icon: "person" })), cursor.point.position)
         }
+        function onTrackMenuRequested(track, x, y) {
+            artistPreview.hide()
+            trackMenu.show(track, Qt.point(x, y))
+        }
+    }
+    Connections {
+        target: Library
+        function onNotice(text) { snackbar.show(text) }
+    }
+
+    function trackMenuAction(id, track, item) {
+        const seed = "track:" + track.trackId
+        if (id === "pin") {
+            if (Library.isWavePinned(seed))
+                Library.unpinWave(seed)
+            else
+                Library.pinWave(seed)
+        } else if (id === "wave") {
+            Wave.playStation(seed, track.title ?? "")
+        } else if (id === "repeat") {
+            Player.cycleRepeat()
+        } else if (id === "queue") {
+            if (nowPlaying.open)
+                nowPlaying.hide()
+            Settings.rightPanelTab = "queue"
+            Settings.rightPanelOpen = true
+        } else if (id === "sound") {
+            if (nowPlaying.open)
+                nowPlaying.hide()
+            router.reset("settings")
+        } else if (id === "playlist:new") {
+            newPlaylistDialog.open(track)
+        } else if (id.startsWith("playlist:")) {
+            Library.addToPlaylist(track, Number(id.slice("playlist:".length)))
+        } else if (id === "share:track") {
+            Catalog.copyLink(Catalog.trackUrl(track))
+            snackbar.show("Ссылка скопирована")
+        } else if (id.startsWith("share:artist:")) {
+            Catalog.copyLink("https://music.yandex.ru/artist/" + id.slice("share:artist:".length))
+            snackbar.show("Ссылка скопирована")
+        } else if (id === "goto:track") {
+            Catalog.openAlbum(track.albumId, track.trackId)
+        } else if (id === "goto:album") {
+            Catalog.openAlbum(track.albumId)
+        } else if (id === "goto:artist") {
+            Catalog.openArtists(track.artistRefs ?? [])
+        }
     }
     HoverHandler { id: cursor }
     ArtistPreview {
@@ -239,6 +286,20 @@ Window {
         anchors.fill: parent
         z: 2000
         onPicked: i => Catalog.openArtist(refs[i].id)
+    }
+    TrackMenu {
+        id: trackMenu
+        z: 2000
+        onTriggered: (id, track, item) => win.trackMenuAction(id, track, item)
+    }
+    NewPlaylistDialog {
+        id: newPlaylistDialog
+        z: 2100
+    }
+    Snackbar {
+        id: snackbar
+        anchors.fill: parent
+        z: 2200
     }
 
     ResizeEdges { window: win }

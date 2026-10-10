@@ -7,6 +7,8 @@ TrackListPage {
     id: page
 
     property string albumId
+    property string trackId                   // «перейти к треку»: прокрутить к нему и подсветить
+    highlightTrackId: trackId
     readonly property QtObject album: Catalog.album(albumId)
     readonly property var info: album ? album.info : ({})
 

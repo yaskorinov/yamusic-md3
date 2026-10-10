@@ -162,6 +162,15 @@ Item {
                 enabled: Player.hasTrack
                 onTapped: root.openNowPlaying(coverBox.mapToItem(null, coverBox.width / 2, coverBox.height / 2))
             }
+            TapHandler {
+                id: trackMenuTap
+                enabled: Player.hasTrack
+                acceptedButtons: Qt.RightButton
+                onTapped: (point) => {
+                    const p = trackMenuTap.parent.mapToItem(null, point.position.x, point.position.y)
+                    Catalog.requestTrackMenu(Player.track, p.x, p.y)
+                }
+            }
         }
 
         // Оценка: «не рекомендовать» — только в волне (там она влияет на подбор), лайк — всегда
@@ -172,6 +181,17 @@ Item {
             onClicked: { Library.dislike(Player.track); Player.next() }
         }
         LikeButton { track: Player.track }
+        IconButton {
+            id: miniMore
+            // в узкой пилюле место нужнее треку; меню остаётся по ПКМ на треке
+            visible: root.width >= 760
+            icon: "more_horiz"
+            enabled: Player.hasTrack
+            onClicked: {
+                const p = miniMore.mapToItem(null, 0, miniMore.height)
+                Catalog.requestTrackMenu(Player.track, p.x, p.y)
+            }
+        }
         Item { implicitWidth: 8 }
 
         // Панели и громкость

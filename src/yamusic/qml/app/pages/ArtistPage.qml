@@ -149,6 +149,7 @@ Page {
                 current: model.trackId === Player.trackId
                 onActivated: Player.playFrom(page.artist.popular, index)
                 onLikeClicked: Library.toggleLike(page.artist.popular.get(index))
+                track: page.artist.popular.get(index)
             }
         }
     }
