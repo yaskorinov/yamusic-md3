@@ -1,6 +1,5 @@
 # YaMusic
 
-[![Build](https://github.com/yaskorinov/yamusic-md3/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/yaskorinov/yamusic-md3/actions/workflows/build.yml)
 [![Release](https://github.com/yaskorinov/yamusic-md3/actions/workflows/release.yml/badge.svg)](https://github.com/yaskorinov/yamusic-md3/actions/workflows/release.yml)
 [![Latest release](https://img.shields.io/github/v/release/yaskorinov/yamusic-md3?include_prereleases&label=%D0%B2%D1%8B%D0%BF%D1%83%D1%81%D0%BA)](https://github.com/yaskorinov/yamusic-md3/releases)
 
@@ -134,7 +133,8 @@ bash .github/scripts/package_macos.sh 0.1.0   # target/dist/YaMusic.app и .dmg
 
 ## CI и выпуски
 
-- [`build.yml`](.github/workflows/build.yml) — на каждый push и PR в `main`: Linux (AppImage, tar.gz), Windows
+- [`build.yml`](.github/workflows/build.yml) — на PR в `main` и вручную (Actions → Build → Run workflow),
+  на обычные коммиты в `main` не запускается: Linux (AppImage, tar.gz), Windows
   (инсталлер, portable), macOS (best effort, падение не роняет сборку), Android (APK). Готовые файлы — в
   артефактах запуска.
 - [`release.yml`](.github/workflows/release.yml) — на тег `v*` (например `git tag v0.2.0 && git push --tags`):

@@ -1,9 +1,8 @@
-# Сборка всех платформ. Запускается на push/PR в main и вызывается из release.yml (workflow_call).
+# Сборка всех платформ. Запускается на PR в main, вручную (Actions → Build → Run workflow) и вызывается
+# из release.yml (workflow_call). На обычные коммиты в main не запускается.
 name: Build
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
