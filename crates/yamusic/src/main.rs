@@ -2,6 +2,8 @@
 // Оболочка: cli, context, display, engine, icons, images, models, qt, winframe; мосты QML — bridges.
 // Часть API оболочки (qt::*, models::*) нужна только мостам — dead_code для бинарника не показателен.
 #![allow(dead_code)]
+// релиз на Windows — GUI-подсистема, без чёрного окна консоли; отладочная сборка оставляет консоль для логов
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod bridges;
 mod cli;
