@@ -109,6 +109,7 @@ Window {
                 }
 
                 MiniPlayer {
+                    id: miniPlayer
                     anchors.bottom: parent.bottom
                     anchors.bottomMargin: 16
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -143,11 +144,14 @@ Window {
         }
     }
 
-    // Смена цвета под новую обложку: шторка слева направо при переходе вперёд, справа налево — назад
+    // Смена цвета (и фона — он меняется под снимком) под новую обложку. Способ — из настроек;
+    // направление: вперёд по очереди — слева направо, назад — справа налево; волна идёт от обложки
     ThemeWipe {
         id: themeWipe
         anchors.fill: parent
         source: scene
+        mode: Settings.trackTransition
+        originItem: nowPlaying.open ? nowPlaying.coverItem : miniPlayer.coverItem
         z: 1000
         Component.onCompleted: Theme.wipe = themeWipe
     }

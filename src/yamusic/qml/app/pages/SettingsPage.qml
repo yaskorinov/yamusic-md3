@@ -15,6 +15,13 @@ Page {
         { mode: "blobs", text: "Пятна", hint: "Крупные цветовые пятна — как было раньше" }
     ]
 
+    readonly property var transitions: [
+        { mode: "wipe", text: "Шторка", hint: "Новые цвета и фон въезжают сбоку: слева направо — следующий трек, справа налево — предыдущий" },
+        { mode: "ripple", text: "Волна от обложки", hint: "Новые цвета и фон расходятся от обложки фигурой с волнистым краем" },
+        { mode: "dissolve", text: "Растворение", hint: "Старые цвета и фон спокойно тают, проявляя новые" },
+        { mode: "liquid", text: "Перетекание", hint: "Старая картинка растекается и тает неровной волной в сторону перехода" }
+    ]
+
     readonly property var variantNames: ({
         content: "По обложке", tonalSpot: "Спокойная", vibrant: "Яркая", expressive: "Выразительная",
         fidelity: "Точная", neutral: "Нейтральная", monochrome: "Монохром"
@@ -83,6 +90,31 @@ Page {
                         onClicked: Settings.schemeVariant = modelData
                     }
                 }
+            }
+        }
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 12
+            Label { text: "Смена цветов и фона"; type: "bodyLarge" }
+            Flow {
+                Layout.fillWidth: true
+                spacing: 8
+                Repeater {
+                    model: page.transitions
+                    Chip {
+                        required property var modelData
+                        text: modelData.text
+                        selected: Settings.trackTransition === modelData.mode
+                        onClicked: Settings.trackTransition = modelData.mode
+                    }
+                }
+            }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: (page.transitions.find(m => m.mode === Settings.trackTransition) ?? page.transitions[0]).hint
+                type: "bodyMedium"
+                color: Theme.fgSurfaceVariant
             }
         }
         ColumnLayout {

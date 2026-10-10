@@ -7,6 +7,7 @@ import YaMusic.Core
 Item {
     id: root
 
+    readonly property Item coverItem: coverBox
     signal openNowPlaying(point coverCenter)   // центр обложки в координатах окна — отсюда растёт блоб
 
     implicitHeight: 72

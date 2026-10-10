@@ -16,6 +16,7 @@ SCHEMA: dict[str, tuple[type, object]] = {
     "accentFromCover": (bool, True),       # перекрашивать приложение под обложку
     "customSeed": (str, "#FFCC00"),        # seed, когда обложки нет или accentFromCover выключен
     "windowButtons": (bool, False),        # кнопки окна для не-тайлинговых DE
+    "trackTransition": (str, "wipe"),      # смена цветов и фона: wipe | ripple | dissolve | liquid
     "backdropMode": (str, "gauss"),        # характер размытия фона: gauss | glass | palette | blobs
     "nowPlayingBlur": (float, 1.0),        # размытие фона полноэкранного плеера, 0..1
     "nowPlayingDrift": (float, 0.5),       # «плавание» размытия: скорость перелива 0..1, 0 — неподвижно

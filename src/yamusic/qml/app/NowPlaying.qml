@@ -16,6 +16,7 @@ Item {
     property string tab: "lyrics"          // lyrics | queue
     property real reveal: open ? 1 : 0
     readonly property bool animating: revealAnim.running
+    readonly property Item coverItem: bigCover
 
     readonly property var _windowShapes: ["cookie9", "cookie12", "cookie7", "flower8", "flower6", "clover4", "sunny", "cookie6"]
     readonly property real _split: 0.45
@@ -173,6 +174,7 @@ Item {
                 }
 
                 NowPlayingCover {
+                    id: bigCover
                     // Всё остальное в колонке занимает ~360 px — обложка берёт оставшееся
                     readonly property real s: Math.max(160, Math.min(left.width, left.height - 360, 440))
                     Layout.alignment: Qt.AlignHCenter
