@@ -60,13 +60,29 @@ has_libmpv() {
 }
 has_header() { [ -e "/usr/include/$1" ]; }
 
+# Qt ищем заранее: скачивать его (а значит, и ставить 7zip для распаковки) нужно, только если в системе нет годного
+qt_ok() { [ -x "$1" ] && ver_ge "$("$1" -query QT_VERSION 2>/dev/null || echo 0)" "${QT_VERSION%.*}"; }
+# системный Qt годится, только если стоят и QML-модули (qt6-declarative и т. п.)
+qt_full() {
+    local qml
+    qml="$("$1" -query QT_INSTALL_QML 2>/dev/null)" || return 1
+    [ -e "$qml/QtQuick/qmldir" ] && [ -e "$qml/QtQuick/Effects/qmldir" ] && [ -e "$qml/Qt/labs/platform/qmldir" ]
+}
+
+QMAKE="${YAMUSIC_QMAKE:-}"
+if [ -z "$QMAKE" ]; then
+    for q in "$(command -v qmake6 || true)" /usr/lib/qt6/bin/qmake6 /usr/lib64/qt6/bin/qmake6 /usr/lib/qt6/bin/qmake; do
+        if [ -n "$q" ] && qt_ok "$q" && qt_full "$q"; then QMAKE="$q"; break; fi
+    done
+fi
+
 need=()
 has_libmpv || need+=(libmpv)
 have git || need+=(git)
 have curl || need+=(curl)
 have c++ || need+=(c++)
 have python3 || need+=(python3)
-have 7z || have 7zz || need+=(7zip)
+[ -n "$QMAKE" ] || have 7z || have 7zz || need+=(7zip)
 has_header GL/gl.h || need+=(opengl-dev)
 has_header xkbcommon/xkbcommon.h || need+=(xkbcommon-dev)
 # cxx-qt не линкуется GNU ld.bfd: нужен lld, mold или gold
@@ -115,20 +131,6 @@ fi
 
 # --- Qt 6.12 ----------------------------------------------------------------
 
-qt_ok() { [ -x "$1" ] && ver_ge "$("$1" -query QT_VERSION 2>/dev/null || echo 0)" "${QT_VERSION%.*}"; }
-# системный Qt годится, только если стоят и QML-модули (qt6-declarative и т. п.)
-qt_full() {
-    local qml
-    qml="$("$1" -query QT_INSTALL_QML 2>/dev/null)" || return 1
-    [ -e "$qml/QtQuick/qmldir" ] && [ -e "$qml/QtQuick/Effects/qmldir" ] && [ -e "$qml/Qt/labs/platform/qmldir" ]
-}
-
-QMAKE="${YAMUSIC_QMAKE:-}"
-if [ -z "$QMAKE" ]; then
-    for q in "$(command -v qmake6 || true)" /usr/lib/qt6/bin/qmake6 /usr/lib64/qt6/bin/qmake6 /usr/lib/qt6/bin/qmake; do
-        if [ -n "$q" ] && qt_ok "$q" && qt_full "$q"; then QMAKE="$q"; break; fi
-    done
-fi
 QT_PRIVATE=""
 if [ -z "$QMAKE" ]; then
     QT_PRIVATE="$DIR/qt/$QT_VERSION/$QT_ARCH"
