@@ -136,3 +136,51 @@ class RotorDto(
 
 @Serializable
 class RotorItemDto(val track: TrackDto? = null)
+
+// --- каталог и поиск ---------------------------------------------------------
+
+@Serializable
+class AlbumDto(
+    @Serializable(with = IdSerializer::class) val id: String = "",
+    val title: String = "",
+    val version: String = "",
+    val type: String = "",
+    val year: Int = 0,
+    val releaseDate: String = "",
+    val trackCount: Int = 0,
+    val coverUri: String = "",
+    val ogImage: String = "",
+    val artists: List<NamedDto> = emptyList(),
+    val volumes: List<List<TrackDto>> = emptyList(),
+)
+
+@Serializable
+class ArtistDto(
+    @Serializable(with = IdSerializer::class) val id: String = "",
+    val name: String = "",
+    val cover: ArtistCoverDto = ArtistCoverDto(),
+    val ogImage: String = "",
+)
+
+@Serializable
+class ArtistCoverDto(val uri: String = "")
+
+@Serializable
+class ArtistBriefDto(
+    val artist: ArtistDto = ArtistDto(),
+    val popularTracks: List<TrackDto> = emptyList(),
+    val albums: List<AlbumDto> = emptyList(),
+)
+
+@Serializable
+class ArtistAlbumsDto(val albums: List<AlbumDto> = emptyList())
+
+@Serializable
+class SearchDto(
+    val tracks: SearchBlockDto<TrackDto> = SearchBlockDto(),
+    val albums: SearchBlockDto<AlbumDto> = SearchBlockDto(),
+    val artists: SearchBlockDto<ArtistDto> = SearchBlockDto(),
+)
+
+@Serializable
+class SearchBlockDto<T>(val results: List<T> = emptyList())

@@ -6,6 +6,7 @@ import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.request.crossfade
 import io.github.yaskorinov.yamusic.api.YandexApi
+import io.github.yaskorinov.yamusic.data.Catalog
 import io.github.yaskorinov.yamusic.data.Library
 import io.github.yaskorinov.yamusic.data.PlayReporter
 import io.github.yaskorinov.yamusic.data.Session
@@ -34,6 +35,7 @@ class App : Application(), SingletonImageLoader.Factory {
     val player by lazy { PlayerConnection(this) }
     val reporter by lazy { PlayReporter(scope, api, session, settings) }
     val wave by lazy { Wave(scope, api, session, settings, player) { tracker } }
+    val catalog by lazy { Catalog(scope, api) }
 
     /** Плеер в сервисе воспроизведения; null, пока сервис не запущен. */
     var tracker: PlaybackTracker? = null

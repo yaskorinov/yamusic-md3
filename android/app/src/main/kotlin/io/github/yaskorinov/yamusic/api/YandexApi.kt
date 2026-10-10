@@ -116,6 +116,39 @@ class YandexApi(private val http: OkHttpClient) {
         return items.mapNotNull { it.track?.toTrack() ?: fetched[it.id] }
     }
 
+    // --- каталог и поиск -------------------------------------------------------------
+
+    suspend fun search(text: String): SearchResult {
+        val query = mapOf("text" to text, "nocorrect" to "False", "type" to "all", "page" to "0", "playlist-in-best" to "True")
+        val found = call(SearchDto.serializer(), request("/search", query))
+        return SearchResult(
+            tracks = found.tracks.results.map { it.toTrack() },
+            albums = found.albums.results.map { it.toAlbum() },
+            artists = found.artists.results.map { it.toArtist() },
+        )
+    }
+
+    suspend fun album(id: String): AlbumPage {
+        val album = call(AlbumDto.serializer(), request("/albums/$id/with-tracks"))
+        return AlbumPage(album.toAlbum(), album.volumes.flatten().map { it.toTrack() })
+    }
+
+    suspend fun artist(id: String): ArtistPage {
+        val brief = call(ArtistBriefDto.serializer(), request("/artists/$id/brief-info"))
+        // В краткой сводке альбомов немного — полный список отдельным запросом, а не вышло — хватит сводки
+        val albums = try {
+            val query = mapOf("sort-by" to "year", "page" to "0", "page-size" to "100")
+            call(ArtistAlbumsDto.serializer(), request("/artists/$id/direct-albums", query)).albums
+        } catch (e: ApiException) {
+            brief.albums
+        }
+        return ArtistPage(
+            artist = brief.artist.toArtist(),
+            popular = brief.popularTracks.map { it.toTrack() },
+            albums = albums.sortedWith(compareByDescending<AlbumDto> { it.year }.thenByDescending { it.releaseDate }).map { it.toAlbum() },
+        )
+    }
+
     // --- «Моя волна» (rotor) --------------------------------------------------------
 
     /** Группы настроек волны; чего API не прислал, остаётся из запасного списка. */

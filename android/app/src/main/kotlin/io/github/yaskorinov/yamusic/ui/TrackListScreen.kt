@@ -52,6 +52,7 @@ import io.github.yaskorinov.yamusic.playback.PlayerState
 fun TrackListScreen(
     title: String,
     list: TrackList,
+    subtitle: String = "",
     context: PlayContext,
     player: PlayerConnection,
     playerState: PlayerState,
@@ -67,6 +68,7 @@ fun TrackListScreen(
         item(key = "header") {
             Header(
                 title = title,
+                subtitle = subtitle,
                 count = tracks.size,
                 loading = loading,
                 onBack = onBack,
@@ -100,7 +102,7 @@ fun TrackListScreen(
 }
 
 @Composable
-private fun Header(title: String, count: Int, loading: Boolean, onBack: () -> Unit, onPlay: () -> Unit, onShuffle: () -> Unit) {
+private fun Header(title: String, subtitle: String, count: Int, loading: Boolean, onBack: () -> Unit, onPlay: () -> Unit, onShuffle: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(start = 8.dp, end = 20.dp, top = 4.dp, bottom = 12.dp)) {
         IconButton(onClick = onBack) { Symbol("arrow_back") }
         Column(Modifier.padding(start = 12.dp)) {
@@ -112,7 +114,11 @@ private fun Header(title: String, count: Int, loading: Boolean, onBack: () -> Un
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                if (count == 0 && loading) "Загружаем…" else tracksCount(count),
+                when {
+                    count == 0 && loading -> "Загружаем…"
+                    subtitle.isEmpty() -> tracksCount(count)
+                    else -> "$subtitle · ${tracksCount(count)}"
+                },
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

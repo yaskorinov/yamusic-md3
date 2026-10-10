@@ -22,6 +22,10 @@ data class PlayContext(val from: String, val playlistId: String = "", val wave: 
         val Liked = PlayContext("desktop_win-own_tracks-track-default")
         val Wave = PlayContext("desktop_win-radio-user-onyourwave-default", wave = true)
 
+        val Search = PlayContext("desktop_win-search-track-default")
+        val Album = PlayContext("desktop_win-album-track-default")
+        val Artist = PlayContext("desktop_win-artist-track-default")
+
         fun playlist(id: String) = PlayContext("desktop_win-playlist-track-default", playlistId = id)
     }
 }

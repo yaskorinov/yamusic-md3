@@ -19,6 +19,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -39,10 +40,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.yaskorinov.yamusic.data.AuthState
 import io.github.yaskorinov.yamusic.playback.PlayContext
 import io.github.yaskorinov.yamusic.playback.PlayerState
+import io.github.yaskorinov.yamusic.ui.ArtistScreen
 import io.github.yaskorinov.yamusic.ui.CollectionScreen
 import io.github.yaskorinov.yamusic.ui.LoginScreen
 import io.github.yaskorinov.yamusic.ui.NowPlaying
 import io.github.yaskorinov.yamusic.ui.PlayerBar
+import io.github.yaskorinov.yamusic.ui.SearchScreen
 import io.github.yaskorinov.yamusic.ui.Symbol
 import io.github.yaskorinov.yamusic.ui.TrackListScreen
 import io.github.yaskorinov.yamusic.ui.WaveScreen
@@ -96,20 +99,38 @@ class MainActivity : ComponentActivity() {
 private enum class Tab(val title: String, val icon: String) {
     Wave("Волна", "graphic_eq"),
     Collection("Коллекция", "queue_music"),
+    Search("Поиск", "search"),
 }
 
-/** Страница внутри коллекции: её корень, «Мне нравится» или плейлист 'uid:kind'. */
-private const val PAGE_ROOT = ""
+// Страницы поверх корня вкладки; путь вкладки — они же через перевод строки (так он переживает поворот экрана)
 private const val PAGE_LIKED = "liked"
+private const val PAGE_PLAYLIST = "playlist:"
+private const val PAGE_ALBUM = "album:"
+private const val PAGE_ARTIST = "artist:"
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun Home(app: App, playerState: PlayerState) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     var tab by rememberSaveable { mutableStateOf(Tab.Wave) }
-    var page by rememberSaveable { mutableStateOf(PAGE_ROOT) }
+    var collectionPath by rememberSaveable { mutableStateOf("") }
+    var searchPath by rememberSaveable { mutableStateOf("") }
     val hasTrack = playerState.track != null
-    val playlists by app.library.playlists.collectAsStateWithLifecycle()
+
+    val path = when (tab) {
+        Tab.Collection -> collectionPath
+        Tab.Search -> searchPath
+        Tab.Wave -> ""
+    }
+    val setPath: (String) -> Unit = {
+        when (tab) {
+            Tab.Collection -> collectionPath = it
+            Tab.Search -> searchPath = it
+            Tab.Wave -> Unit
+        }
+    }
+    val push: (String) -> Unit = { setPath(if (path.isEmpty()) it else "$path\n$it") }
+    val pop: () -> Unit = { setPath(path.substringBeforeLast('\n', "")) }
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -129,7 +150,7 @@ private fun Home(app: App, playerState: PlayerState) {
                             ShortNavigationBarItem(
                                 selected = tab == item,
                                 onClick = {
-                                    if (tab == item) page = PAGE_ROOT // повторное нажатие — к корню раздела
+                                    if (tab == item) setPath("") // повторное нажатие — к корню раздела
                                     tab = item
                                 },
                                 icon = { Symbol(item.icon, filled = tab == item) },
@@ -141,41 +162,11 @@ private fun Home(app: App, playerState: PlayerState) {
             },
         ) { padding ->
             AnimatedContent(
-                targetState = tab to page,
+                targetState = tab to path.substringAfterLast('\n'),
                 transitionSpec = { fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(100)) },
                 label = "page",
-            ) { (shownTab, shownPage) ->
-                val playlist = playlists.firstOrNull { it.id == shownPage }
-                when {
-                    shownTab == Tab.Wave -> WaveScreen(app.wave, app.player, playerState, padding)
-                    shownPage == PAGE_LIKED -> TrackListScreen(
-                        title = "Мне нравится",
-                        list = app.library.likedList,
-                        context = PlayContext.Liked,
-                        player = app.player,
-                        playerState = playerState,
-                        contentPadding = padding,
-                        onRetry = app.library::refresh,
-                        onBack = { page = PAGE_ROOT },
-                    )
-                    playlist != null -> TrackListScreen(
-                        title = playlist.title,
-                        list = remember(playlist.id) { app.library.tracksOf(playlist) },
-                        context = PlayContext.playlist(playlist.id),
-                        player = app.player,
-                        playerState = playerState,
-                        contentPadding = padding,
-                        onRetry = { app.library.tracksOf(playlist, reload = true) },
-                        onBack = { page = PAGE_ROOT },
-                    )
-                    else -> CollectionScreen(
-                        library = app.library,
-                        session = app.session,
-                        contentPadding = padding,
-                        onOpenLiked = { page = PAGE_LIKED },
-                        onOpenPlaylist = { page = it.id },
-                    )
-                }
+            ) { (shownTab, page) ->
+                Page(app, playerState, shownTab, page, padding, push, pop)
             }
         }
         AnimatedVisibility(
@@ -186,7 +177,89 @@ private fun Home(app: App, playerState: PlayerState) {
             NowPlaying(playerState, app.player, app.library, onClose = { expanded = false })
         }
     }
-    BackHandler(enabled = expanded || (tab == Tab.Collection && page != PAGE_ROOT)) {
-        if (expanded) expanded = false else page = PAGE_ROOT
+    BackHandler(enabled = expanded || path.isNotEmpty()) {
+        if (expanded) expanded = false else pop()
+    }
+}
+
+/** Страница [page] вкладки [tab]; пустая — корень вкладки. */
+@Composable
+private fun Page(
+    app: App,
+    playerState: PlayerState,
+    tab: Tab,
+    page: String,
+    padding: PaddingValues,
+    push: (String) -> Unit,
+    pop: () -> Unit,
+) {
+    val playlists by app.library.playlists.collectAsStateWithLifecycle()
+    val playlist = playlists.firstOrNull { PAGE_PLAYLIST + it.id == page }
+    when {
+        page == PAGE_LIKED -> TrackListScreen(
+            title = "Мне нравится",
+            list = app.library.likedList,
+            context = PlayContext.Liked,
+            player = app.player,
+            playerState = playerState,
+            contentPadding = padding,
+            onRetry = app.library::refresh,
+            onBack = pop,
+        )
+        playlist != null -> TrackListScreen(
+            title = playlist.title,
+            list = remember(playlist.id) { app.library.tracksOf(playlist) },
+            context = PlayContext.playlist(playlist.id),
+            player = app.player,
+            playerState = playerState,
+            contentPadding = padding,
+            onRetry = { app.library.tracksOf(playlist, reload = true) },
+            onBack = pop,
+        )
+        page.startsWith(PAGE_ALBUM) -> {
+            val id = page.removePrefix(PAGE_ALBUM)
+            val data = remember(id) { app.catalog.album(id) }
+            val album by data.info.collectAsStateWithLifecycle()
+            TrackListScreen(
+                title = album?.title.orEmpty(),
+                subtitle = listOfNotNull(album?.artists, album?.year?.takeIf { it > 0 }?.toString())
+                    .filter { it.isNotEmpty() }.joinToString(" · "),
+                list = data.list,
+                context = PlayContext.Album,
+                player = app.player,
+                playerState = playerState,
+                contentPadding = padding,
+                onRetry = { app.catalog.album(id, reload = true) },
+                onBack = pop,
+            )
+        }
+        page.startsWith(PAGE_ARTIST) -> {
+            val id = page.removePrefix(PAGE_ARTIST)
+            ArtistScreen(
+                data = remember(id) { app.catalog.artist(id) },
+                player = app.player,
+                playerState = playerState,
+                contentPadding = padding,
+                onRetry = { app.catalog.artist(id, reload = true) },
+                onBack = pop,
+                onOpenAlbum = { push(PAGE_ALBUM + it.id) },
+            )
+        }
+        tab == Tab.Wave -> WaveScreen(app.wave, app.player, playerState, padding)
+        tab == Tab.Search -> SearchScreen(
+            catalog = app.catalog,
+            player = app.player,
+            playerState = playerState,
+            contentPadding = padding,
+            onOpenAlbum = { push(PAGE_ALBUM + it.id) },
+            onOpenArtist = { push(PAGE_ARTIST + it.id) },
+        )
+        else -> CollectionScreen(
+            library = app.library,
+            session = app.session,
+            contentPadding = padding,
+            onOpenLiked = { push(PAGE_LIKED) },
+            onOpenPlaylist = { push(PAGE_PLAYLIST + it.id) },
+        )
     }
 }

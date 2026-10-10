@@ -31,13 +31,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.compose.AsyncImage
 import io.github.yaskorinov.yamusic.api.Playlist
 import io.github.yaskorinov.yamusic.data.Library
 import io.github.yaskorinov.yamusic.data.Session
@@ -117,12 +114,7 @@ fun CollectionScreen(
                 Modifier.fillMaxWidth().clickable { onOpenPlaylist(playlist) }.padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                AsyncImage(
-                    model = playlist.cover(200),
-                    contentDescription = null,
-                    modifier = Modifier.size(60.dp).clip(RoundedCornerShape(16.dp)).background(colors.surfaceContainerHigh),
-                    contentScale = ContentScale.Crop,
-                )
+                Cover(playlist.cover(200), 60.dp, RoundedCornerShape(16.dp), "queue_music")
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(playlist.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
