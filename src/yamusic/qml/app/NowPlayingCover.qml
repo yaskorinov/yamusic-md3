@@ -4,13 +4,14 @@ import Md3
 // Обложка полноэкранного плеера. Смена трека — морф через фигуру: старая обложка, вращаясь,
 // сжимается в маленькую «печеньку» и тает; новая вырастает из неё, морфясь из цветка в свою
 // фигуру (с лёгким перелётом). Две обложки — двойной буфер: новая показывается, когда загрузилась.
-// pulse — «дыхание» фигуры в такт (обложка внутри неподвижна).
+// pulse — «дыхание» фигуры в такт, spinning — медленное вращение рамки (обложка внутри неподвижна).
 Item {
     id: root
 
     property string source
     property var restShape: "cookie12"
     property real pulse: 0
+    property bool spinning: false
     property int direction: 1              // +1 — вперёд по очереди, -1 — назад: куда вращаться
 
     property int _front: 0
@@ -65,11 +66,13 @@ Item {
     }
 
     component Layer: MorphImage {
+        id: layer
         required property int index
         anchors.fill: parent
         duration: Theme.motion.spatialSlow
         shape: root.restShape
         pulse: index === root._front ? root.pulse : 0
+        MaskSpin { target: layer; spinning: layer.index === root._front && root.spinning }
         visible: opacity > 0.01
     }
 

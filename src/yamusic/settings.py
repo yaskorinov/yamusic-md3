@@ -21,6 +21,7 @@ SCHEMA: dict[str, tuple[type, object]] = {
     "nowPlayingBlur": (float, 1.0),        # размытие фона полноэкранного плеера, 0..1
     "nowPlayingDrift": (float, 0.5),       # «плавание» размытия: скорость перелива 0..1, 0 — неподвижно
     "ambientBackground": (bool, True),     # размытая обложка за всем окном
+    "coverSpin": (bool, True),             # рамка обложки медленно вращается, пока играет музыка
     "coverPulse": (bool, True),            # обложка в полноэкранном плеере «дышит» в такт
     "calmWhenInactive": (bool, True),      # окно не в фокусе — декоративные анимации стоят
     # Раскладка

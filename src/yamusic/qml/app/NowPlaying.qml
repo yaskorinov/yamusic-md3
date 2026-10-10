@@ -185,6 +185,7 @@ Item {
                     restShape: Player.playing ? "cookie12" : "square"
                     direction: Player.direction
                     pulse: Settings.coverPulse ? left.beat : 0
+                    spinning: Settings.coverSpin && Player.playing && root.open
                 }
 
                 // Подписи при смене трека проявляются заново, чуть снизу

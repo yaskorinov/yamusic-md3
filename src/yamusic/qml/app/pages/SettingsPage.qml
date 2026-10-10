@@ -179,6 +179,11 @@ Page {
             Switch { checked: Settings.calmWhenInactive; onToggled: c => Settings.calmWhenInactive = c }
         }
         SettingRow {
+            title: "Рамка обложки вращается"
+            description: "Пока играет музыка, фигурная рамка обложки медленно крутится; сама картинка стоит"
+            Switch { checked: Settings.coverSpin; onToggled: c => Settings.coverSpin = c }
+        }
+        SettingRow {
             title: "Обложка дышит в такт"
             description: "В полноэкранном плеере обложка слегка пульсирует по громкости музыки"
             Switch { checked: Settings.coverPulse; onToggled: c => Settings.coverPulse = c }

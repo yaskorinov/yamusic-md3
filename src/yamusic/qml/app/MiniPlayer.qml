@@ -92,10 +92,12 @@ Item {
                     Layout.preferredWidth: 48
                     Layout.preferredHeight: 48
                     MorphImage {
+                        id: miniCover
                         anchors.fill: parent
                         visible: Player.cover !== ""
                         source: Player.cover
                         shape: Player.playing ? "cookie12" : "softSquare"
+                        MaskSpin { target: miniCover; spinning: Settings.coverSpin && Player.playing }
                     }
                     MorphShape {
                         anchors.fill: parent

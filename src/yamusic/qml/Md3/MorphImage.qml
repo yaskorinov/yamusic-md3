@@ -13,12 +13,17 @@ Item {
     property alias livingSpeed: mask.livingSpeed
     property alias pulse: mask.pulse        // «дыхание» фигуры; картинка внутри не двигается
 
+    // Поворот фигуры-рамки, градусы: картинка внутри стоит. Трансформация, контур не пересчитывается
+    // (в отличие от angle). Медленное вращение — MaskSpin.
+    property real maskRotation: 0
+
     function jumpTo(next) { mask.jumpTo(next) }
     property color placeholderColor: Theme.surfaceContainerHighest
 
     // Подложка, пока картинка грузится (та же фигура).
     MorphShape {
         anchors.fill: parent
+        rotation: root.maskRotation
         shape: mask.shape
         angle: mask.angle
         pulse: mask.pulse
@@ -36,14 +41,20 @@ Item {
         sourceSize: Qt.size(Math.ceil(root.width * Screen.devicePixelRatio), Math.ceil(root.height * Screen.devicePixelRatio))
     }
 
-    MorphShape {
-        id: mask
+    // Слой — на обёртке: поворот самой фигуры должен попасть в текстуру маски
+    Item {
+        id: maskLayer
         anchors.fill: parent
         visible: false
         layer.enabled: true
         layer.smooth: true
-        color: "white"
-        tinted: false   // белая маска: шейдер окраски не нужен
+        MorphShape {
+            id: mask
+            anchors.fill: parent
+            rotation: root.maskRotation
+            color: "white"
+            tinted: false   // белая маска: шейдер окраски не нужен
+        }
     }
 
     MultiEffect {
@@ -51,7 +62,7 @@ Item {
         source: image
         visible: image.status === Image.Ready
         maskEnabled: true
-        maskSource: mask
+        maskSource: maskLayer
         maskThresholdMin: 0.5
         maskSpreadAtMin: 1.0
     }
