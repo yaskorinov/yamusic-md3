@@ -511,13 +511,15 @@ private fun NowPlayingCover(url: String, restShape: PolarShape, direction: Int, 
     LaunchedEffect(url) {
         val old = layers[front]
         val new = layers[1 - front]
-        if (old.url.isEmpty()) { // первая обложка — без анимации
+        if (old.url == null) { // первая обложка — без анимации
             old.url = url
             return@LaunchedEffect
         }
         if (old.url == url) return@LaunchedEffect
-        withTimeoutOrNull(1500) {
-            SingletonImageLoader.get(context).execute(ImageRequest.Builder(context).data(url).size(CoilSize.ORIGINAL).build())
+        if (url.isNotEmpty()) { // у трека без обложки ждать нечего — сразу заглушка
+            withTimeoutOrNull(1500) {
+                SingletonImageLoader.get(context).execute(ImageRequest.Builder(context).data(url).size(CoilSize.ORIGINAL).build())
+            }
         }
         new.url = url
         new.morph.jumpTo(Shapes.Flower8)
@@ -538,9 +540,10 @@ private fun NowPlayingCover(url: String, restShape: PolarShape, direction: Int, 
     }
     Box(modifier) {
         layers.forEachIndexed { index, layer ->
-            if (layer.url.isNotEmpty()) {
+            val shown = layer.url
+            if (shown != null) {
                 MorphImage(
-                    layer.url,
+                    shown,
                     restShape,
                     Modifier.fillMaxSize().zIndex(if (index == front) 1f else 0f).graphicsLayer {
                         scaleX = layer.scale.value
@@ -559,7 +562,8 @@ private fun NowPlayingCover(url: String, restShape: PolarShape, direction: Int, 
 }
 
 private class CoverLayer(shape: PolarShape) {
-    var url by mutableStateOf("")
+    /** null — слой ещё пуст; пустая строка — трек без обложки, рисуется заглушка. */
+    var url by mutableStateOf<String?>(null)
     val morph = MorphState(shape)
     val scale = Animatable(1f)
     val rotation = Animatable(0f)

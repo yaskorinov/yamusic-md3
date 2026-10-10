@@ -122,10 +122,18 @@ fun MorphImage(
             .background(colors.surfaceContainerHighest),
         contentAlignment = Alignment.Center,
     ) {
-        if (url.isEmpty()) {
+        // Заглушка — и когда обложки нет вовсе, и когда она не загрузилась
+        var failed by remember(url) { mutableStateOf(false) }
+        if (url.isEmpty() || failed) {
             Symbol(placeholder, size = placeholderSize, tint = colors.onSurfaceVariant)
         } else {
-            AsyncImage(coverRequest(url), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            AsyncImage(
+                coverRequest(url),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                onError = { failed = true },
+            )
         }
     }
 }
