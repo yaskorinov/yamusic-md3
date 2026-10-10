@@ -36,8 +36,8 @@ Page {
         FrameAnimation {
             running: page.playing && page.visible && !Theme.calm
             onTriggered: {
-                hero.angle = (hero.angle + frameTime * 8) % 360
-                inner.angle = (inner.angle - frameTime * 12 + 360) % 360
+                hero.rotation = (hero.rotation + frameTime * 8) % 360       // поворот, а не контур (angle)
+                inner.rotation = (inner.rotation - frameTime * 12 + 360) % 360
             }
         }
         PlayButton {

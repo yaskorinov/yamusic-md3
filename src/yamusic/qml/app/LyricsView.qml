@@ -23,6 +23,11 @@ Item {
     property bool showSource: true
 
     readonly property var lines: Lyrics.lines
+    // Трек уже сменился, а текст ещё от прошлого: гасим и не обрабатываем (иначе позиция 0 запускает
+    // каскад прокрутки по всем строкам старого текста — несколько тяжёлых кадров подряд).
+    readonly property bool stale: Lyrics.trackId !== Player.trackId
+    readonly property bool live: visible && !stale && lines.length > 0
+    onLiveChanged: if (live) { jumpTimer.restart(); sync(Player.positionMs / 1000); tick() }
     readonly property real rowH: fontSize * 1.22
     readonly property real lineGap: fontSize * 0.62
     readonly property real liftPx: fontSize * 0.07
@@ -38,7 +43,83 @@ Item {
     onLinesChanged: {
         jumpTimer.restart()      // новый текст встаёт на место без анимации
         activeIndex = -1
+        rebuild()
         tick()
+    }
+
+    // ── строки ──────────────────────────────────────────────────────────────
+    // Текст на 40–60 строк — это сотни элементов-слов. Созданные разом (да ещё в двух представлениях:
+    // плеер и боковая панель), они давали провал ~300 мс при каждой смене трека. Поэтому строки
+    // строятся только в видимом представлении и порциями по несколько штук за кадр.
+    property var _lines: []                // текст, по которому построены делегаты
+    property var _pending: null            // новый текст ждёт, пока разберутся строки старого
+    property int _built: 0
+    property bool _tearing: false
+    readonly property int buildChunk: 3
+
+    // Разборка старых строк тоже порциями (разом — ~50 мс). Делегаты привязаны к _lines, поэтому
+    // новый текст подставляется только после того, как старые строки убраны.
+    function rebuild() {
+        _pending = lines
+        if (lineModel.count > 0)
+            _tearing = true
+        else
+            _adopt()
+        builder.running = true
+    }
+    function _adopt() {
+        _lines = _pending ?? []
+        _pending = null
+        _built = 0
+    }
+    onVisibleChanged: if (visible && _built < _lines.length) builder.running = true
+
+    // Трек сменился — старые строки можно убирать, не дожидаясь нового текста (он уже погас)
+    onStaleChanged: if (stale) staleTeardown.restart()
+    Timer {
+        id: staleTeardown
+        interval: 180
+        onTriggered: {
+            if (root.stale && lineModel.count > 0) {
+                root._tearing = true
+                builder.running = true
+            }
+        }
+    }
+
+    ListModel { id: lineModel }
+    FrameAnimation {
+        id: builder
+        running: false
+        onTriggered: {
+            if (root._tearing) {
+                const n = Math.min(lineModel.count, root.buildChunk * 2)
+                if (n > 0)
+                    lineModel.remove(lineModel.count - n, n)
+                if (lineModel.count === 0) {
+                    root._tearing = false
+                    if (root._pending !== null) {
+                        root._adopt()
+                    } else {
+                        root._lines = []
+                        root._built = 0
+                    }
+                }
+                return
+            }
+            if (!root.visible || root._built >= root._lines.length) {
+                running = false
+                return
+            }
+            const until = Math.min(root._lines.length, root._built + root.buildChunk)
+            for (; root._built < until; root._built++)
+                lineModel.append({ line: root._built })
+            jumpTimer.restart()               // пока строится — без каскада прокрутки
+            if (root._built >= root._lines.length) {
+                running = false
+                root.tick()
+            }
+        }
     }
 
     // ── позиция ─────────────────────────────────────────────────────────────
@@ -59,6 +140,8 @@ Item {
     Connections {
         target: Player
         function onPositionChanged() {
+            if (!root.live)
+                return
             const measured = Player.positionMs / 1000
             const err = measured - root.playerPos()
             root.sync(Math.abs(err) > 0.3 ? measured : root.playerPos() + err * 0.35)
@@ -92,7 +175,7 @@ Item {
     }
 
     FrameAnimation {
-        running: root.visible && Player.playing && root.lines.length > 0
+        running: root.live && Player.playing
         onTriggered: root.tick()
     }
 
@@ -131,7 +214,7 @@ Item {
     EmptyState {
         anchors.centerIn: parent
         width: Math.min(parent.width - 32, 380)
-        visible: root.lines.length === 0 && Lyrics.status !== "loading"
+        visible: !root.stale && root.lines.length === 0 && Lyrics.status !== "loading"
         icon: "title"
         shape: "flower6"
         title: !Player.hasTrack ? "Ничего не играет"
@@ -143,7 +226,7 @@ Item {
     }
     LoadingIndicator {
         anchors.centerIn: parent
-        visible: Lyrics.status === "loading"
+        visible: Lyrics.status === "loading" || (root.stale && Player.hasTrack)
     }
 
     // ── текст ───────────────────────────────────────────────────────────────
@@ -151,7 +234,9 @@ Item {
         id: viewport
         anchors.fill: parent
         clip: true
-        visible: root.lines.length > 0
+        visible: root.lines.length > 0 && opacity > 0
+        opacity: root.stale || root._tearing ? 0 : 1
+        Behavior on opacity { NumberAnimation { duration: 160 } }
 
         // Края растворяются в прозрачность (а не в цвет фона — под текстом бывает обложка)
         layer.enabled: true
@@ -169,7 +254,7 @@ Item {
 
             Repeater {
                 id: lineRep
-                model: root.lines
+                model: lineModel
                 delegate: LyricLine {}
             }
         }
@@ -239,8 +324,8 @@ Item {
     component LyricLine: Item {
         id: line
 
-        required property var modelData
         required property int index
+        readonly property var modelData: root._lines[index] ?? ({ gap: true, t: 0, e: 0 })
 
         readonly property bool isGap: !!modelData.gap
         readonly property bool isActive: index === root.activeIndex

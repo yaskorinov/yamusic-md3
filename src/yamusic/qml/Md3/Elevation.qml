@@ -17,5 +17,10 @@ RectangularShadow {
     blur: _dp * 2.2
     spread: 0
     color: Qt.alpha(Theme.shadow, 0.35)
-    visible: level > 0
+    // Тень — отдельный элемент рядом с поверхностью, поэтому сама повторяет её видимость, прозрачность
+    // и масштаб: иначе от скрытой карточки остаётся тёмное пятно (у ни разу не показанной — в точке 0,0).
+    visible: level > 0 && target.visible
+    opacity: target.opacity
+    scale: target.scale
+    transformOrigin: target.transformOrigin
 }

@@ -51,6 +51,11 @@ class Lyrics(QObject):
         return self._lines
 
     @Property(str, notify=changed)
+    def trackId(self) -> str:
+        """Трек, к которому относятся lines/status (после смены трека отстаёт на время поиска)."""
+        return self._track_id
+
+    @Property(str, notify=changed)
     def status(self) -> str:
         return self._status
 
@@ -92,7 +97,7 @@ class Lyrics(QObject):
         duration = int(track.get("durationMs") or 0) / 1000
 
         def yandex_lrc() -> str | None:
-            if client is None:
+            if client is None or not loop.is_running():   # приложение закрывается
                 return None
             return asyncio.run_coroutine_threadsafe(_yandex_lrc(client, track_id), loop).result(timeout=15)
 

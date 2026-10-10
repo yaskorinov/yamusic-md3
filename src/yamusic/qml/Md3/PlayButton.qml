@@ -29,7 +29,8 @@ Item {
 
         FrameAnimation {
             running: root.spin && root.playing && root.visible && !Theme.calm
-            onTriggered: shape.angle = (shape.angle + frameTime * 30) % 360
+            // поворот элемента, а не контура (angle) — без пересборки пути каждый кадр
+            onTriggered: shape.rotation = (shape.rotation + frameTime * 30) % 360
         }
     }
 

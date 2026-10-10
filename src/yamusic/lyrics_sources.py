@@ -24,7 +24,7 @@ import urllib.request
 
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
 CACHE_DIR = ""          # задаёт yamusic.lyrics (каталог кэша приложения)
-CACHE_VERSION = 4   # 4 — Яндекс в конце цепочки
+CACHE_VERSION = 5   # 4 — Яндекс в конце цепочки; 5 — заглушки NetEase «текста нет» пропускаются
 NOT_FOUND_TTL = 6 * 3600
 TIMEOUT = 8
 GAP_MIN = 4.5          # seconds of silence that get the "• • •" interlude
@@ -96,6 +96,25 @@ _META_LINE = re.compile(
     r"lyrics|lyricist|composer|composed|producer|produced|arranger|written|mixed|mastered|vocals?)\s*[:：]",
     re.I,
 )
+
+
+# NetEase вместо «текста нет» отдаёт заглушку-строку: «纯音乐，请欣赏» (инструментал, приятного
+# прослушивания), «暂无歌词» (текста пока нет), «此歌曲为没有填词的纯音乐» и т. п.
+_PLACEHOLDER = re.compile(r"纯音乐|純音樂|暂无歌词|暫無歌詞|没有填词|沒有填詞|无歌词|無歌詞|请欣赏|請欣賞|"
+                          r"歌词贡献者|翻译贡献者|暂时没有歌词|此歌曲为")
+_CJK_ONLY = re.compile(r"^[\s\W\d一-鿿㐀-䶿]+$")
+
+
+def is_placeholder(texts):
+    """Строки — не текст песни, а заглушка «текста нет»: тогда источник пропускается."""
+    texts = [t.strip() for t in texts if t and t.strip()]
+    if not texts:
+        return True
+    if any(_PLACEHOLDER.search(t) for t in texts):
+        # заглушка обычно одна-две строки; в настоящем китайском тексте такие слова — редкость
+        return len(texts) <= 4 or sum(bool(_PLACEHOLDER.search(t)) for t in texts) * 2 >= len(texts)
+    # одна-две строки целиком из иероглифов — тоже заглушка, а не песня
+    return len(texts) <= 2 and all(_CJK_ONLY.match(t) for t in texts)
 
 
 def word_from_parts(parts):
@@ -392,6 +411,9 @@ def fetch(title, artist, album, duration, mxm_user_token="", yandex_lrc=None):
         yrc = ((ne_data or {}).get("yrc") or {}).get("lyric")
         if yrc:
             lines = parse_yrc(yrc)
+            if lines and is_placeholder("".join(w["x"] for w in ln["w"]) for ln in lines):
+                log("netease yrc: placeholder, skip")
+                lines = []
             if lines:
                 return {"ok": True, "source": "NetEase", "kind": "word", "lines": lines}
 
@@ -419,7 +441,8 @@ def fetch(title, artist, album, duration, mxm_user_token="", yandex_lrc=None):
     # 5. NetEase plain LRC
     ne_lrc = ((ne_data or {}).get("lrc") or {}).get("lyric")
     if ne_lrc:
-        lines = build_from_timed_lines(lines_from_lrc(ne_lrc), duration)
+        pairs = lines_from_lrc(ne_lrc)
+        lines = [] if is_placeholder(t for _, t in pairs) else build_from_timed_lines(pairs, duration)
         if lines:
             return {"ok": True, "source": "NetEase", "kind": "line", "lines": lines}
 
