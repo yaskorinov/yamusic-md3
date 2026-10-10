@@ -15,7 +15,11 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -52,6 +56,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,6 +71,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -83,6 +89,7 @@ import io.github.yaskorinov.yamusic.App
 import io.github.yaskorinov.yamusic.api.Track
 import io.github.yaskorinov.yamusic.playback.PlayerConnection
 import io.github.yaskorinov.yamusic.playback.PlayerState
+import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -105,20 +112,106 @@ private fun rememberPosition(player: PlayerConnection, state: PlayerState): Stat
 /**
  * Плавающий мини-плеер-пилюля: обложка в фигуре (рамка вращается, пока играет), название, волнистый
  * прогресс, лайк и управление. Нажатие раскрывает полный плеер — [onOpen] получает центр обложки,
- * из которого вырастает «окно».
+ * из которого вырастает «окно». Пилюлю можно смахнуть: влево — следующий трек, вправо — предыдущий;
+ * она уезжает за пальцем, а следом въезжает пилюля соседнего трека.
  */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun MiniPlayer(state: PlayerState, app: App, onOpen: (Offset) -> Unit, modifier: Modifier = Modifier) {
     val track = state.track ?: return
-    val colors = MaterialTheme.colorScheme
     val theme = LocalTheme.current
     val player = app.player
-    val coverSpin by app.settings.coverSpin.flow.collectAsStateWithLifecycle()
-    val spin = rememberSpin(coverSpin && state.playing)
+    val queue by player.queue.collectAsStateWithLifecycle()
+    val next = queue.getOrNull(state.nextIndex)
+    val previous = queue.getOrNull(state.previousIndex)
+    val scope = rememberCoroutineScope()
+    val offset = remember { Animatable(0f) }
+    // Куда тянут: -1 — к следующему (пилюля едет влево), 1 — к предыдущему
+    val pull by remember { derivedStateOf { if (offset.value < 0f) -1 else if (offset.value > 0f) 1 else 0 } }
+    // Трек, на который только что перелистнули: плеер сообщит о смене чуть позже, а пилюля уже на месте
+    var held by remember { mutableStateOf<Track?>(null) }
+    LaunchedEffect(held, track.id) {
+        if (held == null) return@LaunchedEffect
+        if (held?.id != track.id) delay(1500) // плеер так и не переключился — показываем, что есть
+        held = null
+    }
+    val shown = held?.takeIf { it.id != track.id } ?: track
+    var width by remember { mutableIntStateOf(0) }
+    val gap = with(LocalDensity.current) { 12.dp.toPx() }
     var cover by remember { mutableStateOf(Offset.Zero) }
+    Box(
+        modifier.fillMaxWidth().height(72.dp).onSizeChanged { width = it.width }.draggable(
+            state = rememberDraggableState { delta ->
+                val wanted = offset.value + delta
+                // тянуть некуда — пилюля поддаётся, но туго
+                val stuck = (wanted < 0f && next == null) || (wanted > 0f && previous == null)
+                scope.launch { offset.snapTo(if (stuck) offset.value + delta * 0.2f else wanted) }
+            },
+            orientation = Orientation.Horizontal,
+            enabled = held == null,
+            onDragStopped = { velocity ->
+                val step = width + gap
+                val forward = offset.value < 0f
+                val far = abs(offset.value) > step * 0.3f || (if (forward) velocity < -900f else velocity > 900f)
+                val to = if (far) (if (forward) next else previous) else null
+                offset.animateTo(if (to == null) 0f else if (forward) -step else step, spring(dampingRatio = 0.9f, stiffness = 420f), velocity)
+                if (to != null) {
+                    // соседняя пилюля встала на место текущей — подменяем их в одном кадре и только тогда переключаем трек
+                    held = to
+                    offset.snapTo(0f)
+                    if (forward) player.next() else player.previousItem()
+                }
+            },
+        ),
+    ) {
+        Pill(
+            track = shown,
+            state = state,
+            app = app,
+            current = true,
+            onOpen = { onOpen(cover) },
+            modifier = Modifier.graphicsLayer { translationX = offset.value },
+            coverModifier = Modifier.onGloballyPositioned {
+                cover = it.boundsInRoot().center
+                theme.miniCover = it
+            },
+        )
+        val neighbour = if (pull < 0) next else if (pull > 0) previous else null
+        if (neighbour != null) {
+            Pill(
+                track = neighbour,
+                state = state,
+                app = app,
+                current = false,
+                onOpen = null,
+                modifier = Modifier.graphicsLayer { translationX = offset.value - pull * (width + gap) },
+            )
+        }
+    }
+}
+
+/**
+ * Сама пилюля. [current] — она стоит на месте играющего трека: вращается рамка, показаны ошибка и загрузка;
+ * иначе это сосед по очереди. Прогресс идёт, только когда в ней и правда играющий трек.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun Pill(
+    track: Track,
+    state: PlayerState,
+    app: App,
+    current: Boolean,
+    onOpen: (() -> Unit)?,
+    modifier: Modifier,
+    coverModifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val player = app.player
+    val coverSpin by app.settings.coverSpin.flow.collectAsStateWithLifecycle()
+    val spin = rememberSpin(current && coverSpin && state.playing)
+    val live = track.id == state.track?.id
     Surface(
-        onClick = { onOpen(cover) },
+        onClick = { onOpen?.invoke() },
+        enabled = onOpen != null,
         modifier = modifier.fillMaxWidth().height(72.dp),
         shape = CircleShape,
         color = colors.surfaceContainerHighest,
@@ -128,25 +221,23 @@ fun MiniPlayer(state: PlayerState, app: App, onOpen: (Offset) -> Unit, modifier:
             MorphImage(
                 track.cover(200),
                 if (state.playing) Shapes.Cookie12 else Shapes.SoftSquare,
-                Modifier.size(48.dp).graphicsLayer().onGloballyPositioned {
-                    cover = it.boundsInRoot().center
-                    theme.miniCover = cover
-                },
+                Modifier.size(48.dp).graphicsLayer().then(coverModifier),
                 rotation = spin,
             )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
+                val error = state.error.takeIf { live }.orEmpty()
                 Text(track.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    state.error.ifEmpty { track.artists },
+                    error.ifEmpty { track.artists },
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (state.error.isEmpty()) colors.onSurfaceVariant else colors.error,
+                    color = if (error.isEmpty()) colors.onSurfaceVariant else colors.error,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 WavyProgress(
-                    value = { fraction(player.positionMs, state.durationMs) },
-                    wavy = state.playing,
+                    value = { if (live) fraction(player.positionMs, state.durationMs) else 0f },
+                    wavy = live && state.playing,
                     modifier = Modifier.fillMaxWidth().height(14.dp),
                     thickness = 3.dp,
                     amplitude = 2.dp,
@@ -155,8 +246,8 @@ fun MiniPlayer(state: PlayerState, app: App, onOpen: (Offset) -> Unit, modifier:
             }
             LikeButton(track, app.library)
             Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {
-                PlayButton(state.playing, player::togglePlay, size = 52.dp)
-                if (state.buffering) LoadingIndicator(Modifier.requiredSize(60.dp).alpha(0.5f), color = colors.primary)
+                PlayButton(state.playing, player::togglePlay, size = 52.dp, spin = current)
+                if (current && state.buffering) LoadingIndicator(Modifier.requiredSize(60.dp).alpha(0.5f), color = colors.primary)
             }
             IconButton(onClick = { player.next() }, enabled = state.hasNext) { Symbol("skip_next", filled = true) }
         }
@@ -254,7 +345,10 @@ fun NowPlaying(
                     "" -> CoverPane(track, state, app, open, direction, onOpenPage)
                     else -> Column {
                         Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            MorphImage(track.cover(200), if (state.playing) Shapes.Cookie12 else Shapes.SoftSquare, Modifier.size(56.dp))
+                            MorphImage(
+                                track.cover(200), if (state.playing) Shapes.Cookie12 else Shapes.SoftSquare,
+                                Modifier.size(56.dp).onGloballyPositioned { theme.smallCover = it }, // отсюда расходится «волна» смены темы
+                            )
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(track.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -327,9 +421,8 @@ private fun CoverPane(track: Track, state: PlayerState, app: App, open: Boolean,
                 direction = direction,
                 pulse = { beat.value },
                 spinning = coverSpin && state.playing && open,
-                modifier = Modifier.size(side).onGloballyPositioned { theme.bigCover = it.boundsInRoot().center },
+                modifier = Modifier.size(side).onGloballyPositioned { theme.bigCover = it },
             )
-            androidx.compose.runtime.DisposableEffect(Unit) { onDispose { theme.bigCover = null } }
             Spacer(Modifier.height(20.dp))
             Text(
                 track.title,

@@ -38,6 +38,8 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.Font
@@ -84,7 +86,8 @@ class Scheme(val colors: ColorScheme, val dark: Boolean, val palette: IntArray)
 
 /**
  * Применённая тема. Цвета и обложка-фон меняются одновременно: под «шторкой» — см. [YaTheme].
- * [miniCover] и [bigCover] — центры обложек мини-плеера и полноэкранного плеера: оттуда расходится «волна».
+ * [miniCover], [bigCover] и [smallCover] — обложки мини-плеера, полноэкранного плеера и его шапки над текстом
+ * или очередью: «волна» расходится от той, что сейчас на экране (см. [coverCenter]).
  */
 @Stable
 class ThemeState internal constructor(scheme: Scheme, art: CoverArt?) {
@@ -92,8 +95,16 @@ class ThemeState internal constructor(scheme: Scheme, art: CoverArt?) {
         internal set
     var art by mutableStateOf(art)
         internal set
-    var miniCover: Offset? = null
-    var bigCover: Offset? = null
+    var miniCover: LayoutCoordinates? = null
+    var bigCover: LayoutCoordinates? = null
+    var smallCover: LayoutCoordinates? = null
+
+    /**
+     * Центр видимой обложки в координатах окна. Место читается в момент вызова, а не запоминается заранее:
+     * обложка плеера появляется и исчезает, а мини-плеер под ним никуда не девается.
+     */
+    fun coverCenter(): Offset? =
+        listOf(bigCover, smallCover, miniCover).firstOrNull { it != null && it.isAttached }?.boundsInRoot()?.center
     val dark get() = scheme.dark
 }
 
@@ -132,7 +143,7 @@ fun YaTheme(coverUrl: String, dark: Boolean, settings: Settings, direction: Int,
         if (state.scheme === scheme && state.art === art) return@LaunchedEffect
         // Сначала снимок со старыми цветами, затем — в одном кадре — новая тема под ним
         val shot = if (layer.size.width > 0) runCatching { layer.toImageBitmap() }.getOrNull() else null
-        val origin = (state.bigCover ?: state.miniCover)?.let { Offset(it.x / layer.size.width, it.y / layer.size.height) }
+        val origin = state.coverCenter()?.let { Offset(it.x / layer.size.width, it.y / layer.size.height) }
         wipe = Wipe(WIPE_MODES.indexOf(transition).coerceAtLeast(0), direction, origin ?: Offset(0.5f, 0.5f), Random.nextFloat() * 50f)
         snapshot = shot
         progress = 0f

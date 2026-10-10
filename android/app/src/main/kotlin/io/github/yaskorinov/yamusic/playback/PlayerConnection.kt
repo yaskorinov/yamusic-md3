@@ -28,6 +28,9 @@ data class PlayerState(
     val wave: Boolean = false,
     /** Место текущего трека в очереди. */
     val index: Int = 0,
+    /** Места следующего и предыдущего треков в очереди с учётом перемешивания и повтора; -1 — такого нет. */
+    val nextIndex: Int = -1,
+    val previousIndex: Int = -1,
     val error: String = "",
 )
 
@@ -109,6 +112,9 @@ class PlayerConnection(private val context: Context) {
     /** В начале трека — к предыдущему, иначе — в начало текущего. */
     fun previous() = controller?.seekToPrevious()
 
+    /** К предыдущему треку, где бы ни стояла позиция текущего. */
+    fun previousItem() = controller?.seekToPreviousMediaItem()
+
     fun seekTo(positionMs: Long) = controller?.seekTo(positionMs)
 
     fun toggleShuffle() {
@@ -144,6 +150,8 @@ class PlayerConnection(private val context: Context) {
             repeat = player.repeatMode,
             wave = item?.playContext()?.wave ?: false,
             index = player.currentMediaItemIndex,
+            nextIndex = player.nextMediaItemIndex,
+            previousIndex = player.previousMediaItemIndex,
             error = player.playerError?.let { it.cause?.message ?: it.message }.orEmpty(),
         )
     }
