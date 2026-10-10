@@ -1,10 +1,13 @@
 package io.github.yaskorinov.yamusic.data
 
+import io.github.yaskorinov.yamusic.api.ApiException
 import io.github.yaskorinov.yamusic.api.Playlist
 import io.github.yaskorinov.yamusic.api.Track
 import io.github.yaskorinov.yamusic.api.YandexApi
+import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,6 +15,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 /** Список треков, который заполняется асинхронно. */
 class TrackList {
@@ -20,12 +26,27 @@ class TrackList {
     val error = MutableStateFlow("")
 }
 
-/** Библиотека пользователя: «Мне нравится», плейлисты и их треки. */
+@Serializable
+private class LibrarySnapshot(
+    val liked: List<Track> = emptyList(),
+    val playlists: List<Playlist> = emptyList(),
+    val playlistTracks: Map<String, List<Track>> = emptyMap(),
+)
+
+/**
+ * Библиотека пользователя: «Мне нравится», плейлисты и их треки. Копия лежит на диске ([dir]):
+ * с неё списки показываются сразу при запуске и остаются доступны без сети.
+ */
 class Library(
     private val scope: CoroutineScope,
     private val api: YandexApi,
     private val session: Session,
+    private val dir: File,
 ) {
+    private val json = Json { ignoreUnknownKeys = true }
+    private val disk = Dispatchers.IO.limitedParallelism(1)
+    private var refreshFailed = false
+
     /** «Мне нравится» — такой же список, как у плейлистов. */
     val likedList = TrackList()
     private val _liked get() = likedList.tracks
@@ -48,25 +69,34 @@ class Library(
     var onFeedback: ((String, Track) -> Unit)? = null
 
     private val playlistTracks = HashMap<String, TrackList>()
+    private val loadedPlaylists = HashSet<String>() // обновлены с сервера в этом запуске
     private var job: Job? = null
     private var playlistsJob: Job? = null
 
     init {
         scope.launch {
             session.state.map { (it as? AuthState.SignedIn)?.account?.uid }.distinctUntilChanged().collect { uid ->
-                if (uid == null) clear() else refresh()
+                if (uid == null) {
+                    clear()
+                } else {
+                    restore(uid)
+                    refresh()
+                }
             }
         }
     }
 
     fun refresh() {
         val uid = session.account?.uid ?: return
+        refreshFailed = false
+        notice.value = ""
         playlistsJob?.cancel()
         playlistsJob = scope.launch {
             try {
                 _playlists.value = api.playlists(uid)
+                save(uid)
             } catch (e: IOException) {
-                notice.value = "Не удалось загрузить плейлисты: ${e.message}"
+                offline(e, "плейлисты")
             }
         }
         job?.cancel()
@@ -76,33 +106,74 @@ class Library(
             try {
                 val ids = api.likedTrackIds(uid)
                 _likedIds.value = ids.mapTo(HashSet()) { it.substringBefore(':') }
-                // Порциями: первые строки видны сразу, даже если лайков тысячи
+                // Порциями: первые строки видны сразу, даже если лайков тысячи. Если на экране уже
+                // сохранённая копия, её не трогаем, пока не загрузится всё: иначе список мигнул бы
+                val progressive = _liked.value.isEmpty()
                 var loaded = emptyList<Track>()
                 for (chunk in ids.chunked(CHUNK)) {
                     loaded = (loaded + api.tracks(chunk)).distinctBy { it.id }
-                    _liked.value = loaded
+                    if (progressive) _liked.value = loaded
                 }
-                if (ids.isEmpty()) _liked.value = emptyList()
+                _liked.value = loaded
+                save(uid)
             } catch (e: IOException) {
-                _error.value = "Не удалось загрузить библиотеку: ${e.message}"
+                if (_liked.value.isEmpty()) _error.value = "Не удалось загрузить библиотеку: ${e.message}" else offline(e, "«Мне нравится»")
             } finally {
                 _loading.value = false
             }
         }
     }
 
+    /** Сеть вернулась: если прошлое обновление не удалось, повторить. */
+    fun retryIfFailed() {
+        if (refreshFailed) refresh()
+    }
+
+    private fun offline(e: IOException, what: String) {
+        refreshFailed = true
+        notice.value = if (e is ApiException) "Не удалось обновить $what: ${e.message}" else "Нет сети — показана сохранённая копия"
+    }
+
+    private suspend fun restore(uid: String) {
+        val snapshot = withContext(disk) {
+            runCatching { json.decodeFromString(LibrarySnapshot.serializer(), File(dir, "library-$uid.json").readText()) }.getOrNull()
+        } ?: return
+        _liked.value = snapshot.liked
+        _likedIds.value = snapshot.liked.mapTo(HashSet()) { it.id }
+        _playlists.value = snapshot.playlists
+        for ((id, tracks) in snapshot.playlistTracks) playlistTracks.getOrPut(id) { TrackList() }.tracks.value = tracks
+    }
+
+    private fun save(uid: String) {
+        val snapshot = LibrarySnapshot(
+            liked = _liked.value,
+            playlists = _playlists.value,
+            playlistTracks = playlistTracks.mapValues { it.value.tracks.value }.filterValues { it.isNotEmpty() },
+        )
+        scope.launch(disk) {
+            val file = File(dir, "library-$uid.json")
+            val part = File(file.path + ".part")
+            part.writeText(json.encodeToString(LibrarySnapshot.serializer(), snapshot))
+            part.renameTo(file)
+        }
+    }
+
     /** Треки плейлиста: загружаются при первом обращении, [reload] — заново. */
     fun tracksOf(playlist: Playlist, reload: Boolean = false): TrackList {
         val known = playlistTracks[playlist.id]
-        if (known != null && !reload) return known
+        if (known != null && loadedPlaylists.contains(playlist.id) && !reload) return known
         val list = known ?: TrackList().also { playlistTracks[playlist.id] = it }
+        loadedPlaylists += playlist.id
         list.loading.value = true
         list.error.value = ""
         scope.launch {
             try {
                 list.tracks.value = api.playlistTracks(playlist.uid, playlist.kind).distinctBy { it.id }
+                session.account?.uid?.let(::save)
             } catch (e: IOException) {
-                list.error.value = "Не удалось загрузить плейлист: ${e.message}"
+                loadedPlaylists -= playlist.id // в следующий раз попробуем снова
+                // без сети остаётся сохранённая копия, если она есть
+                if (list.tracks.value.isEmpty()) list.error.value = "Не удалось загрузить плейлист: ${e.message}"
             } finally {
                 list.loading.value = false
             }
@@ -119,6 +190,7 @@ class Library(
         scope.launch {
             try {
                 api.setLiked(uid, track.fullId, liked)
+                save(uid)
             } catch (e: IOException) {
                 apply(track, !liked)
                 notice.value = "Не удалось ${if (liked) "поставить" else "снять"} лайк: ${e.message}"
@@ -156,6 +228,7 @@ class Library(
         playlistsJob?.cancel()
         _playlists.value = emptyList()
         playlistTracks.clear()
+        loadedPlaylists.clear()
         _liked.value = emptyList()
         _likedIds.value = emptySet()
         _loading.value = false

@@ -36,7 +36,7 @@ class PlayReporter(
         val uid = session.account?.uid ?: return
         val track = item.toTrack()
         val context = item.playContext()
-        if (settings.noReport) {
+        if (settings.noReport.value) {
             Log.w(TAG, "play-audio ${track.id}: %.1f с, конец %.1f с (не отправлено: noReport)".format(played, end))
             return
         }

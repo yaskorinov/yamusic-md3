@@ -10,6 +10,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -29,21 +30,26 @@ import io.github.yaskorinov.yamusic.MainActivity
 class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
     private lateinit var resolver: TrackUrlResolver
+    private var crossfader: Crossfader? = null
 
     override fun onCreate() {
         super.onCreate()
         val app = application as App
-        resolver = TrackUrlResolver(app.api, getSystemService(ConnectivityManager::class.java))
-        val dataSource = ResolvingDataSource.Factory(OkHttpDataSource.Factory(app.http), resolver)
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        resolver = TrackUrlResolver(app.api, connectivity, app.settings, app.downloads)
+        // DefaultDataSource поверх OkHttp: сеть — через общий клиент, скачанные треки — как файлы
+        val dataSource = ResolvingDataSource.Factory(DefaultDataSource.Factory(this, OkHttpDataSource.Factory(app.http)), resolver)
+        val mediaSources = DefaultMediaSourceFactory(dataSource)
         val audio = AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build()
         val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
+            .setMediaSourceFactory(mediaSources)
             .setAudioAttributes(audio, /* handleAudioFocus = */ true)
             .setHandleAudioBecomingNoisy(true) // выдернули наушники — пауза
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
         player.addListener(Recovery(player))
         app.tracker = PlaybackTracker(player, listOf(app.reporter, app.wave))
+        crossfader = Crossfader(this, player, mediaSources, audio, app.settings) { app.tracker }
 
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
@@ -62,6 +68,8 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         val app = application as App
+        crossfader?.release()
+        crossfader = null
         app.tracker?.release()
         app.tracker = null
         session?.run {

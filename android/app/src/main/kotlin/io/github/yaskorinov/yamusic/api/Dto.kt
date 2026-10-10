@@ -79,7 +79,7 @@ class TrackDto(
 )
 
 @Serializable
-class NamedDto(val name: String = "")
+class NamedDto(@Serializable(with = IdSerializer::class) val id: String = "", val name: String = "")
 
 @Serializable
 class AlbumRefDto(

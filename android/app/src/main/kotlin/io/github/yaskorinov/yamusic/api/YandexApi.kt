@@ -193,6 +193,21 @@ class YandexApi(private val http: OkHttpClient) {
         call(JsonElement.serializer(), request("/rotor/session/$sessionId/feedback", body = body))
     }
 
+    /** Синхронный текст трека в формате LRC или null, если у Яндекса его нет. */
+    suspend fun lyricsLrc(trackId: String): String? {
+        val ts = (System.currentTimeMillis() / 1000).toString()
+        val mac = Mac.getInstance("HmacSHA256").apply { init(SecretKeySpec(LYRICS_SIGN_KEY.toByteArray(), "HmacSHA256")) }
+        val sign = Base64.getEncoder().encodeToString(mac.doFinal((trackId + ts).toByteArray()))
+        val query = mapOf("format" to "LRC", "timeStamp" to ts, "sign" to sign)
+        val info = try {
+            call(JsonObject.serializer(), request("/tracks/$trackId/lyrics", query))
+        } catch (e: ApiException) {
+            if (e.status == 404) return null else throw e
+        }
+        val url = (info["downloadUrl"] as? JsonPrimitive)?.content ?: return null
+        return send(Request.Builder().url(url).build()) { it }
+    }
+
     // --- воспроизведение ----------------------------------------------------------
 
     /** Учёт прослушивания: по нему Яндекс строит историю, рекомендации и «Мою волну». */
@@ -341,6 +356,7 @@ class YandexApi(private val http: OkHttpClient) {
         // Ключ подписи get-file-info привязан к заголовку десктопного клиента
         const val SIGN_KEY = "kzqU4XhfCaY6B6JTHODeq5"
         const val SIGN_CLIENT = "YandexMusicDesktopAppWindows/5.95.0"
+        const val LYRICS_SIGN_KEY = "p93jhgh689SBReK6ghtw62" // ключ Android-клиента: подпись запроса текста
         const val TRANSPORT = "raw"
         val CODECS = listOf("flac", "flac-mp4", "aac-mp4", "he-aac-mp4", "aac", "he-aac", "mp3")
 

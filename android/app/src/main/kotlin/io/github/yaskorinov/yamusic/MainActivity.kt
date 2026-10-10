@@ -2,8 +2,10 @@ package io.github.yaskorinov.yamusic
 
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -17,6 +19,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -29,6 +32,8 @@ import androidx.compose.material3.ShortNavigationBar
 import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,10 +47,13 @@ import io.github.yaskorinov.yamusic.playback.PlayContext
 import io.github.yaskorinov.yamusic.playback.PlayerState
 import io.github.yaskorinov.yamusic.ui.ArtistScreen
 import io.github.yaskorinov.yamusic.ui.CollectionScreen
+import io.github.yaskorinov.yamusic.ui.DefaultSeed
+import io.github.yaskorinov.yamusic.ui.LocalDownloaded
 import io.github.yaskorinov.yamusic.ui.LoginScreen
 import io.github.yaskorinov.yamusic.ui.NowPlaying
 import io.github.yaskorinov.yamusic.ui.PlayerBar
 import io.github.yaskorinov.yamusic.ui.SearchScreen
+import io.github.yaskorinov.yamusic.ui.SettingsScreen
 import io.github.yaskorinov.yamusic.ui.Symbol
 import io.github.yaskorinov.yamusic.ui.TrackListScreen
 import io.github.yaskorinov.yamusic.ui.WaveScreen
@@ -62,7 +70,21 @@ class MainActivity : ComponentActivity() {
         setContent {
             val auth by app.session.state.collectAsStateWithLifecycle()
             val playerState by app.player.state.collectAsStateWithLifecycle()
-            YaTheme(seed = rememberCoverSeed(playerState.track?.cover(200).orEmpty())) {
+            val themeMode by app.settings.themeMode.flow.collectAsStateWithLifecycle()
+            val accentFromCover by app.settings.accentFromCover.flow.collectAsStateWithLifecycle()
+            val dark = when (themeMode) {
+                "dark" -> true
+                "light" -> false
+                else -> isSystemInDarkTheme()
+            }
+            // Значки системных панелей — под тему приложения, а не системы
+            DisposableEffect(dark) {
+                val style = if (dark) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                onDispose { }
+            }
+            val coverSeed = rememberCoverSeed(playerState.track?.cover(200).orEmpty())
+            YaTheme(seed = if (accentFromCover) coverSeed else DefaultSeed, dark = dark) {
                 when (val state = auth) {
                     is AuthState.SignedIn -> Home(app, playerState)
                     else -> LoginScreen(state, app.session)
@@ -80,7 +102,7 @@ class MainActivity : ComponentActivity() {
     private fun applyDebugExtras(intent: Intent?) {
         val debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
         if (debuggable && intent?.hasExtra("noReport") == true) {
-            app.settings.noReport = intent.getBooleanExtra("noReport", false)
+            app.settings.noReport.value = intent.getBooleanExtra("noReport", false)
         }
     }
 
@@ -104,6 +126,8 @@ private enum class Tab(val title: String, val icon: String) {
 
 // Страницы поверх корня вкладки; путь вкладки — они же через перевод строки (так он переживает поворот экрана)
 private const val PAGE_LIKED = "liked"
+private const val PAGE_SETTINGS = "settings"
+private const val PAGE_DOWNLOADED = "downloaded"
 private const val PAGE_PLAYLIST = "playlist:"
 private const val PAGE_ALBUM = "album:"
 private const val PAGE_ARTIST = "artist:"
@@ -113,6 +137,7 @@ private const val PAGE_ARTIST = "artist:"
 private fun Home(app: App, playerState: PlayerState) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     var tab by rememberSaveable { mutableStateOf(Tab.Wave) }
+    var wavePath by rememberSaveable { mutableStateOf("") }
     var collectionPath by rememberSaveable { mutableStateOf("") }
     var searchPath by rememberSaveable { mutableStateOf("") }
     val hasTrack = playerState.track != null
@@ -120,18 +145,20 @@ private fun Home(app: App, playerState: PlayerState) {
     val path = when (tab) {
         Tab.Collection -> collectionPath
         Tab.Search -> searchPath
-        Tab.Wave -> ""
+        Tab.Wave -> wavePath
     }
     val setPath: (String) -> Unit = {
         when (tab) {
             Tab.Collection -> collectionPath = it
             Tab.Search -> searchPath = it
-            Tab.Wave -> Unit
+            Tab.Wave -> wavePath = it
         }
     }
     val push: (String) -> Unit = { setPath(if (path.isEmpty()) it else "$path\n$it") }
     val pop: () -> Unit = { setPath(path.substringBeforeLast('\n', "")) }
 
+    val downloadedIds by app.downloads.done.collectAsStateWithLifecycle()
+    CompositionLocalProvider(LocalDownloaded provides downloadedIds.keys) {
     Box(Modifier.fillMaxSize()) {
         Scaffold(
             containerColor = MaterialTheme.colorScheme.surface,
@@ -174,8 +201,17 @@ private fun Home(app: App, playerState: PlayerState) {
             enter = slideInVertically { it },
             exit = slideOutVertically { it },
         ) {
-            NowPlaying(playerState, app.player, app.library, onClose = { expanded = false })
+            NowPlaying(
+                state = playerState,
+                app = app,
+                onClose = { expanded = false },
+                onOpenPage = {
+                    expanded = false
+                    if (path.substringAfterLast('\n') != it) push(it)
+                },
+            )
         }
+    }
     }
     BackHandler(enabled = expanded || path.isNotEmpty()) {
         if (expanded) expanded = false else pop()
@@ -194,6 +230,7 @@ private fun Page(
     pop: () -> Unit,
 ) {
     val playlists by app.library.playlists.collectAsStateWithLifecycle()
+    val downloaded by app.downloads.done.collectAsStateWithLifecycle()
     val playlist = playlists.firstOrNull { PAGE_PLAYLIST + it.id == page }
     when {
         page == PAGE_LIKED -> TrackListScreen(
@@ -205,6 +242,18 @@ private fun Page(
             contentPadding = padding,
             onRetry = app.library::refresh,
             onBack = pop,
+            downloads = app.downloads,
+        )
+        page == PAGE_DOWNLOADED -> TrackListScreen(
+            title = "Скачанные",
+            list = app.downloads.list,
+            context = PlayContext.Liked,
+            player = app.player,
+            playerState = playerState,
+            contentPadding = padding,
+            onRetry = {},
+            onBack = pop,
+            downloads = app.downloads,
         )
         playlist != null -> TrackListScreen(
             title = playlist.title,
@@ -215,7 +264,9 @@ private fun Page(
             contentPadding = padding,
             onRetry = { app.library.tracksOf(playlist, reload = true) },
             onBack = pop,
+            downloads = app.downloads,
         )
+        page == PAGE_SETTINGS -> SettingsScreen(app, padding, onBack = pop)
         page.startsWith(PAGE_ALBUM) -> {
             val id = page.removePrefix(PAGE_ALBUM)
             val data = remember(id) { app.catalog.album(id) }
@@ -224,6 +275,7 @@ private fun Page(
                 title = album?.title.orEmpty(),
                 subtitle = listOfNotNull(album?.artists, album?.year?.takeIf { it > 0 }?.toString())
                     .filter { it.isNotEmpty() }.joinToString(" · "),
+                numbered = true,
                 list = data.list,
                 context = PlayContext.Album,
                 player = app.player,
@@ -231,6 +283,7 @@ private fun Page(
                 contentPadding = padding,
                 onRetry = { app.catalog.album(id, reload = true) },
                 onBack = pop,
+                downloads = app.downloads,
             )
         }
         page.startsWith(PAGE_ARTIST) -> {
@@ -256,9 +309,11 @@ private fun Page(
         )
         else -> CollectionScreen(
             library = app.library,
-            session = app.session,
             contentPadding = padding,
+            onOpenSettings = { push(PAGE_SETTINGS) },
             onOpenLiked = { push(PAGE_LIKED) },
+            downloadedCount = downloaded.size,
+            onOpenDownloaded = { push(PAGE_DOWNLOADED) },
             onOpenPlaylist = { push(PAGE_PLAYLIST + it.id) },
         )
     }

@@ -12,7 +12,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
+@Serializable
 data class Account(val uid: String, val login: String, val displayName: String, val hasPlus: Boolean)
 
 sealed interface AuthState {
@@ -40,11 +43,33 @@ class Session(
 
     private var job: Job? = null
 
-    /** Восстановить сессию при запуске. */
+    /**
+     * Восстановить сессию при запуске. Если аккаунт уже известен, приложение открывается сразу,
+     * а токен проверяется следом: без сети остаёмся в аккаунте (скачанное играет и так).
+     */
     fun start() = attempt {
         _state.value = AuthState.Checking
         val token = withContext(Dispatchers.IO) { store.load() }
-        if (token == null) _state.value = AuthState.SignedOut() else signIn(token, save = false)
+        if (token == null) {
+            _state.value = AuthState.SignedOut()
+            return@attempt
+        }
+        val known = withContext(Dispatchers.IO) { store.account }?.let {
+            runCatching { Json.decodeFromString(Account.serializer(), it) }.getOrNull()
+        }
+        if (known == null) {
+            signIn(token, save = false)
+            return@attempt
+        }
+        api.token = token
+        _state.value = AuthState.SignedIn(known)
+        try {
+            signIn(token, save = false, quiet = true)
+        } catch (e: ApiException) {
+            if (e.unauthorized) throw e // токен отозван — выходим, как обычно
+        } catch (e: IOException) {
+            // нет сети — работаем с тем, что сохранено
+        }
     }
 
     fun retry() = start()
@@ -78,20 +103,23 @@ class Session(
         _state.value = AuthState.SignedOut()
     }
 
-    private suspend fun signIn(token: String, save: Boolean) {
-        _state.value = AuthState.SigningIn
+    /** [quiet] — не показывать «входим»: приложение уже открыто по сохранённому аккаунту. */
+    private suspend fun signIn(token: String, save: Boolean, quiet: Boolean = false) {
+        if (!quiet) _state.value = AuthState.SigningIn
         api.token = token
         val status = api.accountStatus()
-        if (save) withContext(Dispatchers.IO) { store.save(token) }
-        val account = status.account
-        _state.value = AuthState.SignedIn(
-            Account(
-                uid = account.uid,
-                login = account.login,
-                displayName = account.displayName.ifEmpty { account.fullName }.ifEmpty { account.login },
-                hasPlus = status.plus.hasPlus,
-            ),
+        val info = status.account
+        val account = Account(
+            uid = info.uid,
+            login = info.login,
+            displayName = info.displayName.ifEmpty { info.fullName }.ifEmpty { info.login },
+            hasPlus = status.plus.hasPlus,
         )
+        withContext(Dispatchers.IO) {
+            if (save) store.save(token)
+            store.account = Json.encodeToString(Account.serializer(), account)
+        }
+        _state.value = AuthState.SignedIn(account)
     }
 
     /** Одна операция входа за раз; её ошибки превращаются в состояние. */

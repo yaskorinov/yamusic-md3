@@ -40,3 +40,16 @@ uv run yamusic --gallery  # галерея компонентов MD3
 - [Material Symbols Rounded](https://github.com/google/material-design-icons) — Apache License 2.0
 
 Клиент использует неофициальный API Яндекс Музыки и не связан с Яндексом.
+
+## Android
+
+В каталоге `android/` — отдельный нативный клиент (Kotlin, Jetpack Compose, Media3) с тем же дизайном:
+волна, коллекция, поиск, тексты песен, фон из обложки, плавный переход, скачивание для игры без сети.
+Нужны JDK 21 и Android SDK; телефон — Android 12 и новее.
+
+```bash
+cd android && ./gradlew :app:assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+Вход — так же, по коду на ya.ru/device. Устройство описано в `docs/SPEC.md`, раздел «Android».

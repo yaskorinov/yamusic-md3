@@ -1,6 +1,12 @@
 package io.github.yaskorinov.yamusic.api
 
-/** Трек в том виде, в каком он нужен интерфейсу и плееру. */
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class ArtistRef(val id: String, val name: String)
+
+/** Трек в том виде, в каком он нужен интерфейсу и плееру (и в каком хранится для офлайна). */
+@Serializable
 data class Track(
     val id: String,
     val albumId: String = "",
@@ -13,6 +19,8 @@ data class Track(
     val durationMs: Long = 0,
     val explicit: Boolean = false,
     val available: Boolean = true,
+    /** Исполнители по отдельности — для перехода на их страницы. */
+    val artistRefs: List<ArtistRef> = emptyList(),
 ) {
     /** 'id:albumId' — так API лайков и волны однозначно находит трек. */
     val fullId: String get() = if (albumId.isEmpty()) id else "$id:$albumId"
@@ -35,11 +43,13 @@ fun TrackDto.toTrack(): Track {
         durationMs = durationMs,
         explicit = contentWarning == "explicit",
         available = available,
+        artistRefs = artists.filter { it.id.isNotEmpty() && it.name.isNotEmpty() }.map { ArtistRef(it.id, it.name) },
     )
 }
 
 class StreamInfo(val url: String, val codec: String, val bitrate: Int)
 
+@Serializable
 data class Playlist(
     val uid: String,
     val kind: String,

@@ -77,7 +77,7 @@ class Wave(
         val selection = _selection.value.toMutableMap()
         if (selection[key] == seed) selection.remove(key) else selection[key] = seed
         _selection.value = selection
-        settings.waveSeeds = selection.values.joinToString(",")
+        settings.waveSeeds.value = selection.values.joinToString(",")
         if (active) newSession(replace = true)
     }
 
@@ -182,7 +182,7 @@ class Wave(
     private fun feedback(type: String, trackId: String? = null, played: Double? = null, from: String? = null) {
         val session = sessionId
         if (session.isEmpty()) return
-        if (settings.noReport) {
+        if (settings.noReport.value) {
             Log.w(TAG, "волна: $type ${trackId.orEmpty()} (не отправлено: noReport)")
             return
         }
@@ -209,7 +209,7 @@ class Wave(
     }
 
     private fun restoreSelection(groups: List<WaveGroup>): Map<String, String> {
-        val seeds = settings.waveSeeds.split(',').filter { it.isNotEmpty() }
+        val seeds = settings.waveSeeds.value.split(',').filter { it.isNotEmpty() }
         return buildMap {
             for (seed in seeds) groups.firstOrNull { group -> group.items.any { it.seed == seed } }?.let { put(it.key, seed) }
         }

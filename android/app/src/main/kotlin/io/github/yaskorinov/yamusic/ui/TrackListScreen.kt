@@ -17,9 +17,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import io.github.yaskorinov.yamusic.data.Downloads
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
@@ -53,12 +59,14 @@ fun TrackListScreen(
     title: String,
     list: TrackList,
     subtitle: String = "",
+    numbered: Boolean = false,
     context: PlayContext,
     player: PlayerConnection,
     playerState: PlayerState,
     contentPadding: PaddingValues,
     onRetry: () -> Unit,
     onBack: () -> Unit,
+    downloads: Downloads,
 ) {
     val tracks by list.tracks.collectAsStateWithLifecycle()
     val loading by list.loading.collectAsStateWithLifecycle()
@@ -74,6 +82,7 @@ fun TrackListScreen(
                 onBack = onBack,
                 onPlay = { player.play(tracks, 0, context) },
                 onShuffle = { if (tracks.isNotEmpty()) player.play(tracks, tracks.indices.random(), context, shuffle = true) },
+                download = { DownloadButton(tracks, downloads) },
             )
         }
         if (error.isNotEmpty()) {
@@ -89,6 +98,7 @@ fun TrackListScreen(
                 track = track,
                 current = track.id == playerState.track?.id,
                 onClick = { player.play(tracks, index, context) },
+                number = if (numbered) index + 1 else null,
             )
         }
         if (loading) {
@@ -102,7 +112,16 @@ fun TrackListScreen(
 }
 
 @Composable
-private fun Header(title: String, subtitle: String, count: Int, loading: Boolean, onBack: () -> Unit, onPlay: () -> Unit, onShuffle: () -> Unit) {
+private fun Header(
+    title: String,
+    subtitle: String,
+    count: Int,
+    loading: Boolean,
+    onBack: () -> Unit,
+    onPlay: () -> Unit,
+    onShuffle: () -> Unit,
+    download: @Composable () -> Unit,
+) {
     Column(Modifier.fillMaxWidth().padding(start = 8.dp, end = 20.dp, top = 4.dp, bottom = 12.dp)) {
         IconButton(onClick = onBack) { Symbol("arrow_back") }
         Column(Modifier.padding(start = 12.dp)) {
@@ -129,18 +148,73 @@ private fun Header(title: String, subtitle: String, count: Int, loading: Boolean
                     Spacer(Modifier.width(8.dp))
                     Text("Слушать")
                 }
-                FilledTonalButton(onClick = onShuffle, enabled = count > 0, modifier = Modifier.weight(1f).height(56.dp)) {
+                // «Перемешать» и «Скачать» — значками: втроём с подписями кнопки не помещаются
+                FilledTonalIconButton(onClick = onShuffle, enabled = count > 0, modifier = Modifier.size(56.dp)) {
                     Symbol("shuffle")
-                    Spacer(Modifier.width(8.dp))
-                    Text("Перемешать")
                 }
+                download()
             }
         }
     }
 }
 
+/**
+ * Скачать список для игры без сети. Три состояния: не скачан → скачивается (сколько готово; нажатие
+ * отменяет остаток) → скачан (нажатие предлагает удалить файлы).
+ */
 @Composable
-fun TrackRow(track: Track, current: Boolean, onClick: () -> Unit) {
+private fun DownloadButton(tracks: List<Track>, downloads: Downloads) {
+    val done by downloads.done.collectAsStateWithLifecycle()
+    val pending by downloads.pending.collectAsStateWithLifecycle()
+    val status by downloads.status.collectAsStateWithLifecycle()
+    val wanted = tracks.filter { it.available }
+    val ready = wanted.count { it.id in done }
+    val queued = pending.count { queuedTrack -> wanted.any { it.id == queuedTrack.id } }
+    var confirmRemove by remember { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
+
+    FilledTonalIconButton(
+        onClick = {
+            when {
+                queued > 0 -> downloads.remove(pending.map { it.id }.filter { id -> wanted.any { it.id == id } })
+                wanted.isNotEmpty() && ready == wanted.size -> confirmRemove = true
+                else -> downloads.enqueue(wanted)
+            }
+        },
+        enabled = wanted.isNotEmpty(),
+        modifier = Modifier.size(56.dp),
+    ) {
+        when {
+            queued > 0 -> Text("$ready/${wanted.size}", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+            wanted.isNotEmpty() && ready == wanted.size -> Symbol("download_done", tint = colors.primary)
+            else -> Symbol("download")
+        }
+    }
+    if (queued > 0 && status.isNotEmpty()) {
+        // очередь стоит — объяснить почему (например, «Ждём Wi-Fi»)
+        Text(status, Modifier.padding(start = 4.dp), style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+    }
+    if (confirmRemove) {
+        AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            title = { Text("Удалить скачанное?") },
+            text = { Text("Файлы этих треков (${tracksCount(ready)}) будут удалены с телефона. Сами треки останутся в коллекции.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRemove = false
+                    downloads.remove(wanted.map { it.id })
+                }) { Text("Удалить") }
+            },
+            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Отмена") } },
+        )
+    }
+}
+
+/** Идентификаторы скачанных треков: строки помечают их значком, не зная о хранилище. */
+val LocalDownloaded = compositionLocalOf<Set<String>> { emptySet() }
+
+@Composable
+fun TrackRow(track: Track, current: Boolean, onClick: () -> Unit, number: Int? = null) {
     val colors = MaterialTheme.colorScheme
     Row(
         Modifier
@@ -150,12 +224,23 @@ fun TrackRow(track: Track, current: Boolean, onClick: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AsyncImage(
-            model = track.cover(200),
-            contentDescription = null,
-            modifier = Modifier.size(52.dp).clip(RoundedCornerShape(12.dp)).background(colors.surfaceContainerHigh),
-            contentScale = ContentScale.Crop,
-        )
+        if (number != null) {
+            // В альбоме обложка у всех одна — вместо неё номер трека
+            Box(Modifier.size(width = 36.dp, height = 52.dp), contentAlignment = Alignment.Center) {
+                if (current) {
+                    Symbol("graphic_eq", tint = colors.primary)
+                } else {
+                    Text(number.toString(), style = MaterialTheme.typography.titleMedium, color = colors.onSurfaceVariant)
+                }
+            }
+        } else {
+            AsyncImage(
+                model = track.cover(200),
+                contentDescription = null,
+                modifier = Modifier.size(52.dp).clip(RoundedCornerShape(12.dp)).background(colors.surfaceContainerHigh),
+                contentScale = ContentScale.Crop,
+            )
+        }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -185,6 +270,10 @@ fun TrackRow(track: Track, current: Boolean, onClick: () -> Unit) {
             }
         }
         Spacer(Modifier.width(12.dp))
+        if (track.id in LocalDownloaded.current) {
+            Symbol("download_done", size = 16.dp, tint = colors.primary)
+            Spacer(Modifier.width(6.dp))
+        }
         Text(formatTime(track.durationMs), style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant)
     }
 }

@@ -15,20 +15,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -37,23 +32,23 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.yaskorinov.yamusic.api.Playlist
 import io.github.yaskorinov.yamusic.data.Library
-import io.github.yaskorinov.yamusic.data.Session
 
 /** Коллекция: «Мне нравится» и плейлисты пользователя. */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun CollectionScreen(
     library: Library,
-    session: Session,
     contentPadding: PaddingValues,
+    onOpenSettings: () -> Unit,
     onOpenLiked: () -> Unit,
+    downloadedCount: Int,
+    onOpenDownloaded: () -> Unit,
     onOpenPlaylist: (Playlist) -> Unit,
 ) {
     val playlists by library.playlists.collectAsStateWithLifecycle()
     val liked by library.liked.collectAsStateWithLifecycle()
     val notice by library.notice.collectAsStateWithLifecycle()
     val colors = MaterialTheme.colorScheme
-    var confirmSignOut by remember { mutableStateOf(false) }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = contentPadding) {
         item(key = "header") {
@@ -64,7 +59,7 @@ fun CollectionScreen(
                     style = MaterialTheme.typography.displaySmall,
                     fontWeight = FontWeight.SemiBold,
                 )
-                IconButton(onClick = { confirmSignOut = true }) { Symbol("logout") }
+                IconButton(onClick = onOpenSettings) { Symbol("settings") }
             }
         }
         if (notice.isNotEmpty()) {
@@ -99,6 +94,30 @@ fun CollectionScreen(
                 }
             }
         }
+        if (downloadedCount > 0) {
+            item(key = "downloaded") {
+                Row(
+                    Modifier.fillMaxWidth().clickable(onClick = onOpenDownloaded).padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier.size(60.dp).background(colors.secondaryContainer, RoundedCornerShape(16.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Symbol("download_done", size = 28.dp, tint = colors.onSecondaryContainer)
+                    }
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Скачанные", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "${tracksCount(downloadedCount)} · играют без сети",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colors.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
         if (playlists.isNotEmpty()) {
             item(key = "playlists") {
                 Text(
@@ -128,18 +147,4 @@ fun CollectionScreen(
         }
     }
 
-    if (confirmSignOut) {
-        AlertDialog(
-            onDismissRequest = { confirmSignOut = false },
-            title = { Text("Выйти из аккаунта?") },
-            text = { Text("Токен будет удалён с этого телефона.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmSignOut = false
-                    session.signOut()
-                }) { Text("Выйти") }
-            },
-            dismissButton = { TextButton(onClick = { confirmSignOut = false }) { Text("Отмена") } },
-        )
-    }
 }

@@ -4,6 +4,7 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import io.github.yaskorinov.yamusic.api.ArtistRef
 import io.github.yaskorinov.yamusic.api.Track
 
 // Плеер получает не ссылку на файл, а «yamusic://track/<id>»: настоящая ссылка живёт недолго,
@@ -49,6 +50,8 @@ fun Track.toMediaItem(context: PlayContext): MediaItem {
         putString("coverUri", coverUri)
         putLong("durationMs", durationMs)
         putBoolean("explicit", explicit)
+        putStringArrayList("artistIds", ArrayList(artistRefs.map { it.id }))
+        putStringArrayList("artistNames", ArrayList(artistRefs.map { it.name }))
     }
     val metadata = MediaMetadata.Builder()
         .setTitle(title)
@@ -73,5 +76,7 @@ fun MediaItem.toTrack(): Track {
         coverUri = extras?.getString("coverUri").orEmpty(),
         durationMs = extras?.getLong("durationMs") ?: 0,
         explicit = extras?.getBoolean("explicit") ?: false,
+        artistRefs = extras?.getStringArrayList("artistIds").orEmpty()
+            .zip(extras?.getStringArrayList("artistNames").orEmpty()) { id, name -> ArtistRef(id, name) },
     )
 }

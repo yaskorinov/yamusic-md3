@@ -35,8 +35,13 @@ class TokenStore(context: Context) {
     }
 
     fun clear() {
-        prefs.edit().remove(KEY).apply()
+        prefs.edit().remove(KEY).remove(ACCOUNT).apply()
     }
+
+    /** Сведения об аккаунте с прошлого входа (не секрет): с ними приложение открывается и без сети. */
+    var account: String?
+        get() = prefs.getString(ACCOUNT, null)
+        set(value) = prefs.edit().putString(ACCOUNT, value).apply()
 
     private fun secretKey(): SecretKey {
         val keyStore = KeyStore.getInstance(PROVIDER).apply { load(null) }
@@ -50,6 +55,7 @@ class TokenStore(context: Context) {
 
     private companion object {
         const val KEY = "token"
+        const val ACCOUNT = "account"
         const val ALIAS = "yamusic.token"
         const val PROVIDER = "AndroidKeyStore"
         const val TRANSFORMATION = "AES/GCM/NoPadding"

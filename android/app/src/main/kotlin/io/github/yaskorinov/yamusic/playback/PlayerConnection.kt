@@ -26,6 +26,8 @@ data class PlayerState(
     val repeat: Int = Player.REPEAT_MODE_OFF,
     /** Играет «Моя волна». */
     val wave: Boolean = false,
+    /** Место текущего трека в очереди. */
+    val index: Int = 0,
     val error: String = "",
 )
 
@@ -38,8 +40,15 @@ class PlayerConnection(private val context: Context) {
     private var future: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
 
+    /** Очередь в порядке плейлиста (при перемешивании играет вразбивку, но список тот же). */
+    private val _queue = MutableStateFlow<List<Track>>(emptyList())
+    val queue = _queue.asStateFlow()
+
     private val listener = object : Player.Listener {
-        override fun onEvents(player: Player, events: Player.Events) = publish(player)
+        override fun onEvents(player: Player, events: Player.Events) {
+            publish(player)
+            if (events.contains(Player.EVENT_TIMELINE_CHANGED)) publishQueue(player)
+        }
     }
 
     /** Позиция меняется непрерывно, поэтому её не публикуют, а спрашивают. */
@@ -56,6 +65,7 @@ class PlayerConnection(private val context: Context) {
                 controller = it
                 it.addListener(listener)
                 publish(it)
+                publishQueue(it)
             }
         }, context.mainExecutor)
     }
@@ -79,6 +89,15 @@ class PlayerConnection(private val context: Context) {
         player.prepare()
         player.play()
     }
+
+    /** Перейти к треку очереди под номером [index]. */
+    fun playAt(index: Int) {
+        val player = controller ?: return
+        player.seekTo(index, 0L)
+        player.play()
+    }
+
+    fun removeAt(index: Int) = controller?.removeMediaItem(index)
 
     fun togglePlay() {
         val player = controller ?: return
@@ -107,6 +126,10 @@ class PlayerConnection(private val context: Context) {
         }
     }
 
+    private fun publishQueue(player: Player) {
+        _queue.value = List(player.mediaItemCount) { player.getMediaItemAt(it).toTrack() }
+    }
+
     private fun publish(player: Player) {
         val item = player.currentMediaItem
         val track = item?.toTrack()
@@ -120,6 +143,7 @@ class PlayerConnection(private val context: Context) {
             shuffle = player.shuffleModeEnabled,
             repeat = player.repeatMode,
             wave = item?.playContext()?.wave ?: false,
+            index = player.currentMediaItemIndex,
             error = player.playerError?.let { it.cause?.message ?: it.message }.orEmpty(),
         )
     }

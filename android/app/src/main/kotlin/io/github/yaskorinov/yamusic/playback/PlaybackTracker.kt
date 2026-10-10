@@ -21,6 +21,7 @@ class PlaybackTracker(val player: Player, private val events: List<PlaybackEvent
     private var playedMs = 0L
     private var playingSince = 0L   // 0 — сейчас не звучит
     private var endMs = -1L         // позиция, на которой трек покинули
+    private var naturalNext = false // следующую смену трека считать доигрыванием
 
     /** Сколько секунд звучал текущий трек. */
     val playedSeconds: Double
@@ -29,6 +30,11 @@ class PlaybackTracker(val player: Player, private val events: List<PlaybackEvent
     init {
         player.addListener(this)
         player.currentMediaItem?.let(::begin)
+    }
+
+    /** Плавный переход сам переключает трек чуть раньше конца — это доигрывание, а не пропуск. */
+    fun expectNaturalEnd() {
+        naturalNext = true
     }
 
     /** Сервис закрывается: досчитать последний трек. */
@@ -46,7 +52,10 @@ class PlaybackTracker(val player: Player, private val events: List<PlaybackEvent
     }
 
     override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
-        finish(natural = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)
+        val auto = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
+        if (naturalNext) current?.let { endMs = it.toTrack().durationMs }
+        finish(natural = auto || naturalNext)
+        naturalNext = false
         item?.let(::begin)
     }
 

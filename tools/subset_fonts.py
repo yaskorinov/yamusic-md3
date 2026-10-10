@@ -1,7 +1,7 @@
 """Урезанные шрифты для приложения: меньше памяти (Qt держит копию шрифта на каждое сочетание осей).
 
 - Google Sans: латиница, кириллица, знаки препинания — все оси и OpenType-фичи сохраняются.
-- Material Symbols: только иконки, чьи имена встречаются в коде (строковые литералы в QML и Python),
+- Material Symbols: только иконки, чьи имена встречаются в коде (строковые литералы в QML, Python и Kotlin),
   по их кодам из PUA; рисуются символом, а не лигатурой (карта имя → код — assets/fonts/icons.json).
 
 Исходники — assets/fonts-src. Запуск после добавления новых иконок:
@@ -20,6 +20,7 @@ from fontTools.ttLib import TTFont
 ROOT = Path(__file__).resolve().parents[1] / "src" / "yamusic"
 SRC = ROOT / "assets" / "fonts-src"
 OUT = ROOT / "assets" / "fonts"
+ANDROID = ROOT.parents[1] / "android" / "app" / "src"   # Android-клиент берёт те же шрифты и таблицу значков
 
 TEXT_UNICODES = [
     *range(0x20, 0x7F), *range(0xA0, 0x180),     # латиница, Latin-1, Latin Extended-A
@@ -70,7 +71,7 @@ def icon_ligatures(font: TTFont) -> dict[str, int]:
 def used_icon_names(known: set[str]) -> set[str]:
     literal = re.compile(r'"([a-z0-9_]+)"')
     used: set[str] = set()
-    for path in [*ROOT.rglob("*.qml"), *ROOT.rglob("*.py")]:
+    for path in [*ROOT.rglob("*.qml"), *ROOT.rglob("*.py"), *ANDROID.rglob("*.kt")]:
         used |= {m for m in literal.findall(path.read_text()) if m in known}
     return used
 
