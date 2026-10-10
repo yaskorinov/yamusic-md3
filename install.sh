@@ -69,24 +69,26 @@ have python3 || need+=(python3)
 have 7z || have 7zz || need+=(7zip)
 has_header GL/gl.h || need+=(opengl-dev)
 has_header xkbcommon/xkbcommon.h || need+=(xkbcommon-dev)
+# cxx-qt не линкуется GNU ld.bfd: нужен lld, mold или gold
+{ have ld.lld || have ld.mold || have ld.gold; } || need+=(lld)
 
 if [ ${#need[@]} -gt 0 ]; then
     if have pacman; then
-        cmd="sudo pacman -S --needed --noconfirm base-devel mpv git curl python 7zip mesa libxkbcommon"
+        cmd="sudo pacman -S --needed --noconfirm base-devel mpv git curl python 7zip mesa libxkbcommon lld"
     elif have apt-get; then
         # libmpv2 — в новых выпусках Debian/Ubuntu; в старых хватит libmpv-dev (там есть libmpv.so)
         mpvlib=libmpv2
         apt-cache show libmpv2 >/dev/null 2>&1 || mpvlib=libmpv-dev
         sz=7zip
         apt-cache show 7zip >/dev/null 2>&1 || sz=p7zip-full
-        cmd="sudo apt-get install -y build-essential pkg-config git curl python3 $sz $mpvlib \
+        cmd="sudo apt-get install -y build-essential pkg-config lld git curl python3 $sz $mpvlib \
 libgl-dev libegl-dev libxkbcommon-dev libfontconfig1-dev libdbus-1-dev \
 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libfontconfig1 libdbus-1-3"
     elif have dnf; then
-        cmd="sudo dnf install -y gcc-c++ make pkgconf git curl python3 7zip mpv-libs \
+        cmd="sudo dnf install -y gcc-c++ make pkgconf lld git curl python3 7zip mpv-libs \
 mesa-libGL-devel mesa-libEGL-devel libxkbcommon-devel libxkbcommon-x11 fontconfig-devel xcb-util-cursor"
     elif have zypper; then
-        cmd="sudo zypper install -y gcc-c++ make pkg-config git curl python3 7zip libmpv2 \
+        cmd="sudo zypper install -y gcc-c++ make pkg-config lld git curl python3 7zip libmpv2 \
 Mesa-libGL-devel Mesa-libEGL-devel libxkbcommon-devel libxkbcommon-x11-0 fontconfig-devel libxcb-cursor0"
     else
         fail "Не хватает: ${need[*]}. Установите их пакетным менеджером своего дистрибутива (libmpv обычно в пакете mpv) и запустите скрипт снова."

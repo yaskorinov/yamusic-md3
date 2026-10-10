@@ -169,9 +169,19 @@ def main() -> int:
                 actual = sha1_of(dest)
                 if actual != expected:
                     raise SystemExit(f"SHA-1 не совпал для {archive}: {actual} != {expected}")
-                subprocess.run([seven, "x", "-y", "-bd", "-bso0", f"-o{out}", str(dest)], check=True)
+                cmd = [seven, "x", "-y", "-bd", "-bso0", f"-o{out}", str(dest)]
+                # 7-Zip отбрасывает симлинки архивов Qt (libQt6*.so -> .so.6) как «опасные»:
+                # 25.x пропускает их с -snld20, 21–24 — с -snld, старый p7zip 16.02 ключей не знает
+                for flags in (["-snld20"], ["-snld"], []):
+                    if subprocess.run([*cmd, *flags]).returncode == 0:
+                        break
+                else:
+                    raise SystemExit(f"7z не распаковал {archive}")
                 dest.unlink()
                 log(f"распакован {archive}")
+        # архив ICU (Linux) ложится в корень, а Qt ищет его через RUNPATH $ORIGIN/../lib
+        for icu in out.glob("libicu*.so*"):
+            shutil.move(str(icu), out / "lib" / icu.name)
         if not qmake.exists():
             qmake = qmake.with_name("qmake.exe" if args.host == "windows" else "qmake")
         if not qmake.exists():

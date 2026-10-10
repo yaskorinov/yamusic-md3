@@ -69,15 +69,22 @@ LIBMPV="${YAMUSIC_LIBMPV:-$(ldconfig -p | awk '/libmpv\.so\.2 / && !p {p=$NF} EN
 export QMAKE
 export QML_SOURCES_PATHS="$ROOT/src/yamusic/qml"
 export LD_LIBRARY_PATH="$QTDIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-# Wayland рядом с xcb, если есть в этой сборке Qt
+# Wayland рядом с xcb, если есть в этой сборке Qt; offscreen — для --screenshot (смоук-тест CI)
 wayland=()
-for p in "$QTDIR"/plugins/platforms/libqwayland*.so; do
+for p in "$QTDIR"/plugins/platforms/libqwayland*.so "$QTDIR"/plugins/platforms/libqoffscreen.so; do
     [ -e "$p" ] && wayland+=("$(basename "$p")")
 done
 if [ ${#wayland[@]} -gt 0 ]; then
     EXTRA_PLATFORM_PLUGINS="$(IFS=';'; echo "${wayland[*]}")"
     export EXTRA_PLATFORM_PLUGINS
 fi
+
+# plugin-qt их не кладёт: без graphics-integration на Wayland не создаётся GL (аварийный выход),
+# без iconengines не грузятся SVG-иконки окна и трея; зависимости дозаберёт linuxdeploy
+mkdir -p "$APPDIR/usr/plugins"
+for d in iconengines wayland-graphics-integration-client wayland-decoration-client wayland-shell-integration; do
+    [ -d "$QTDIR/plugins/$d" ] && cp -r "$QTDIR/plugins/$d" "$APPDIR/usr/plugins/"
+done
 
 "linuxdeploy-$ARCH.AppImage" --appdir "$APPDIR" \
     --executable "$APPDIR/usr/bin/yamusic" \
