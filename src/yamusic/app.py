@@ -10,7 +10,8 @@ import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, QTimer, QUrl
-from PySide6.QtGui import QFontDatabase, QGuiApplication
+from PySide6.QtDBus import QDBusConnection, QDBusInterface, QDBusMessage
+from PySide6.QtGui import QFontDatabase, QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterSingletonInstance
 from PySide6.QtQuick import QQuickWindow
 
@@ -23,11 +24,20 @@ from .history import PlayReporter
 from .images import CachingNamFactory
 from .library import Library
 from .lyrics import Lyrics
-from .mpris import Mpris
+from .mpris import BUS_NAME, OBJECT_PATH, Mpris
 from .player import Player
 from .wave import Wave
 
 PACKAGE_DIR = Path(__file__).resolve().parent
+
+
+def raise_running_instance() -> bool:
+    """Работающий плеер виден по имени MPRIS на шине: просим его показать окно. True — он нашёлся."""
+    bus = QDBusConnection.sessionBus()
+    if not bus.isConnected() or not bus.interface().isServiceRegistered(BUS_NAME).value():
+        return False
+    reply = QDBusInterface(BUS_NAME, OBJECT_PATH, "org.mpris.MediaPlayer2", bus).call("Raise")
+    return reply.type() != QDBusMessage.MessageType.ErrorMessage
 QML_DIR = PACKAGE_DIR / "qml"
 FONTS_DIR = PACKAGE_DIR / "assets" / "fonts"
 
@@ -41,6 +51,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--seed-image", metavar="PATH", help="взять цвет темы из картинки")
     parser.add_argument("--light", action="store_true", help="светлая тема")
     parser.add_argument("--offline", action="store_true", help="не восстанавливать сессию из keyring")
+    parser.add_argument("--new-instance", action="store_true",
+                        help="запустить второй экземпляр, даже если плеер уже работает")
     parser.add_argument("--debug-wheel", action="store_true", help="печатать сырые события колеса мыши")
     parser.add_argument("--debug-fps", action="store_true", help="счётчик кадров в углу окна")
     parser.add_argument("--size", help="размер окна, ШxВ (по умолчанию — из настроек)")
@@ -93,6 +105,11 @@ def main(argv: list[str] | None = None) -> int:
     QGuiApplication.setOrganizationName("yamusic")
     QGuiApplication.setDesktopFileName("yamusic")
     app = QGuiApplication(argv)
+    # Плеер уже работает (возможно, спрятан в трей) — показываем его окно вместо второго экземпляра
+    main_mode = not (args.screenshot or args.qml or args.gallery)
+    if main_mode and not args.new_instance and raise_running_instance():
+        return 0
+    app.setWindowIcon(QIcon(str(PACKAGE_DIR / "assets" / "yamusic.svg")))
     # До создания окон: Qt Quick берёт период кадра у основного экрана (см. display.py)
     screen_note = prefer_fastest_screen(app)
     if args.debug_fps:
@@ -127,6 +144,8 @@ def main(argv: list[str] | None = None) -> int:
     engine.addImportPath(str(QML_DIR))
     engine.rootContext().setContextProperty("yamusicDebugWheel", args.debug_wheel)
     engine.rootContext().setContextProperty("yamusicDebugFps", args.debug_fps)
+    # Значок в трее: не для снимков и не для галереи
+    engine.rootContext().setContextProperty("yamusicTray", not (args.screenshot or args.gallery))
     app_settings = engine.singletonInstance("YaMusic.Core", "Settings")
     theme_engine = engine.singletonInstance("YaMusic.Core", "ThemeEngine")
     theme_engine.bind_settings(app_settings, app.styleHints())
@@ -163,6 +182,9 @@ def main(argv: list[str] | None = None) -> int:
         auth.start()
 
     window: QQuickWindow = engine.rootObjects()[0]
+    if window.property("trayWanted") is not None:
+        # Главное окно может прятаться в трей — выход решает оно само (Main.qml, onClosing), а не Qt
+        app.setQuitOnLastWindowClosed(False)
 
     def raise_window() -> None:
         window.show()

@@ -237,6 +237,11 @@ Page {
             Switch { checked: Settings.sidebarCollapsed; onToggled: c => Settings.sidebarCollapsed = c }
         }
         SettingRow {
+            title: "Скрывать в трей при закрытии"
+            description: "Закрытое окно прячется в значок в трее, музыка играет дальше. Выход — из меню значка или Ctrl+Q"
+            Switch { checked: Settings.closeToTray; onToggled: c => Settings.closeToTray = c }
+        }
+        SettingRow {
             title: "Кнопки окна"
             description: "Свернуть, развернуть и закрыть — для окружений без тайлинга"
             Switch { checked: Settings.windowButtons; onToggled: c => Settings.windowButtons = c }

@@ -104,7 +104,7 @@ cat > "$BIN/yamusic" <<LAUNCHER
 exec "$DIR/.venv/bin/yamusic" "\$@"
 LAUNCHER
 chmod +x "$BIN/yamusic"
-cp "$DIR/packaging/yamusic.svg" "$ICONS/yamusic.svg"
+cp "$DIR/src/yamusic/assets/yamusic.svg" "$ICONS/yamusic.svg"
 cat > "$APPS/yamusic.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application

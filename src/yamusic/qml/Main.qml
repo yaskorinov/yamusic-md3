@@ -1,5 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQml.Models
+import Qt.labs.platform as Platform
 import Md3
 import YaMusic.Core
 import "app"
@@ -23,10 +25,59 @@ Window {
     readonly property bool panelFits: width >= 1100
     readonly property bool panelShown: Settings.rightPanelOpen && panelFits
 
-    onClosing: {
+    // Закрытие окна прячет его в трей (если это включено и трей в системе есть) — музыка играет дальше.
+    // Выход — из меню значка или Ctrl+Q.
+    readonly property bool trayWanted: typeof yamusicTray !== "undefined" && yamusicTray && Settings.closeToTray
+    readonly property bool trayReady: tray.object !== null && tray.object.available
+
+    function showWindow() {
+        show()
+        raise()
+        requestActivate()
+    }
+
+    onClosing: close => {
         if (visibility === Window.Windowed) {
             Settings.windowWidth = width
             Settings.windowHeight = height
+        }
+        if (trayWanted && trayReady) {
+            close.accepted = false
+            hide()
+        } else {
+            Qt.quit()
+        }
+    }
+
+    Instantiator {
+        id: tray
+        active: win.trayWanted
+        delegate: Platform.SystemTrayIcon {
+            visible: true
+            icon.source: Qt.resolvedUrl("../assets/yamusic.svg")
+            tooltip: Player.hasTrack ? Player.title + " — " + Player.artist : "YaMusic"
+            onActivated: reason => {
+                if (reason === Platform.SystemTrayIcon.MiddleClick)
+                    Player.togglePlay()
+                else if (reason !== Platform.SystemTrayIcon.Context)
+                    win.visible ? win.hide() : win.showWindow()
+            }
+            menu: Platform.Menu {
+                Platform.MenuItem {
+                    text: win.visible ? "Скрыть окно" : "Показать окно"
+                    onTriggered: win.visible ? win.hide() : win.showWindow()
+                }
+                Platform.MenuSeparator {}
+                Platform.MenuItem {
+                    text: Player.playing ? "Пауза" : "Играть"
+                    enabled: Player.hasTrack
+                    onTriggered: Player.togglePlay()
+                }
+                Platform.MenuItem { text: "Следующий трек"; enabled: Player.hasTrack; onTriggered: Player.next() }
+                Platform.MenuItem { text: "Предыдущий трек"; enabled: Player.hasTrack; onTriggered: Player.previous() }
+                Platform.MenuSeparator {}
+                Platform.MenuItem { text: "Выход"; onTriggered: Qt.quit() }
+            }
         }
     }
 
@@ -235,6 +286,6 @@ Window {
     Shortcut { sequence: "Ctrl+,"; onActivated: router.reset("settings") }
     Shortcut { sequence: "Ctrl+B"; onActivated: Settings.sidebarCollapsed = !Settings.sidebarCollapsed }
     Shortcut { sequence: "Ctrl+L"; onActivated: { Settings.rightPanelTab = "lyrics"; Settings.rightPanelOpen = !Settings.rightPanelOpen } }
-    Shortcut { sequences: [StandardKey.Quit]; onActivated: win.close() }
+    Shortcut { sequences: [StandardKey.Quit]; onActivated: Qt.quit() }
     Shortcut { sequence: "F11"; onActivated: win.visibility = win.visibility === Window.FullScreen ? Window.Windowed : Window.FullScreen }
 }
