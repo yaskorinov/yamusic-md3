@@ -6,7 +6,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,10 +20,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -51,7 +48,7 @@ import io.github.yaskorinov.yamusic.playback.PlayContext
 import io.github.yaskorinov.yamusic.playback.PlayerConnection
 import io.github.yaskorinov.yamusic.playback.PlayerState
 
-private val FILTERS = listOf("Всё", "Треки", "Альбомы", "Исполнители")
+private val FILTER_OPTIONS = listOf("Всё", "Треки", "Альбомы", "Исполнители").mapIndexed { index, title -> "$index" to title }
 private const val ALL = 0
 private const val TRACKS = 1
 private const val ALBUMS = 2
@@ -81,19 +78,10 @@ fun SearchScreen(
             Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp),
             onSearch = { focus.clearFocus() },
         )
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            FILTERS.forEachIndexed { index, title ->
-                FilterChip(
-                    selected = filter == index,
-                    onClick = { filter = index },
-                    label = { Text(title) },
-                    leadingIcon = if (filter == index) ({ Symbol("check", size = 18.dp) }) else null,
-                )
-            }
-        }
+        FlowChoice(
+            FILTER_OPTIONS, "$filter", { filter = it.toInt() },
+            Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 6.dp),
+        )
         val bottom = contentPadding.calculateBottomPadding() + 16.dp
         // Состояние поиска и фильтр сменяются через fade through: новое всплывает снизу
         AnimatedContent(
