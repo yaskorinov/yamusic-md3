@@ -357,29 +357,31 @@ private class Scene(
 )
 
 /**
- * Сферы стоят по диагоналям — на телефоне сцена вытянута по вертикали, и у боков крупного центра места нет.
- * Варианты — равные шаги по длине дуги эллипса у самого края сцены; если их много, кружки мельчают.
+ * Обе орбиты — окружности: больше не помещается в ширину экрана. Сферы стоят на своей по диагоналям — так
+ * между ними остаётся место для крупного центра. Варианты — на окружности у самого края сцены; только если
+ * их так много, что кружки стали бы мельче [SMALLEST] от желаемого, орбита вытягивается по вертикали.
  */
 private fun scene(groups: Int, options: Int, width: Float, height: Float, sphere: Float, wanted: Float, gap: Float): Scene {
     val turn = 2 * PI.toFloat()
-    val sphereRx = width / 2 - sphere / 2 - gap
-    val sphereRy = min(height / 2 - sphere / 2 - gap, sphereRx * 1.75f)
+    val half = min(width, height) / 2
+    val diagonal = sqrt(0.5f)
+    val sphereR = min(half - gap / 4, (half - sphere / 2 - gap) / diagonal)
     val spheres = List(groups) { g ->
         val a = PI.toFloat() / 2 + turn * (g + 0.5f) / max(1, groups)
-        Offset(sphereRx * cos(a), sphereRy * sin(a))
+        Offset(sphereR * cos(a), sphereR * sin(a))
     }
-    val nearest = spheres.minOfOrNull { hypot(it.x, it.y) } ?: min(sphereRx, sphereRy)
-    val heroBig = min(width * 0.64f, 2 * (nearest - sphere / 2 - gap))
+    val heroBig = min(width * 0.64f, 2 * (sphereR - sphere / 2 - gap))
 
     var bubble = wanted
-    var rx = 0f
-    var ry = 0f
-    repeat(3) {
-        rx = width / 2 - bubble / 2 - gap
-        ry = height / 2 - bubble / 2 - gap
-        val spacing = turn * sqrt((rx * rx + ry * ry) / 2) / max(1, options)
-        bubble = min(bubble, spacing - gap)
+    val rx = half - bubble / 2 - gap
+    var ry = rx
+    val needed = max(1, options) * (wanted * SMALLEST + gap)
+    if (turn * rx < needed) {
+        // окружности не хватает: вытягиваем настолько, насколько нужно и насколько пускает высота
+        val stretched = sqrt(max(rx * rx, 2 * (needed / turn) * (needed / turn) - rx * rx))
+        ry = min(stretched, height / 2 - bubble / 2 - gap)
     }
+    bubble = min(bubble, turn * sqrt((rx * rx + ry * ry) / 2) / max(1, options) - gap)
     val steps = 720
     val xs = FloatArray(steps + 1)
     val ys = FloatArray(steps + 1)
@@ -397,5 +399,7 @@ private fun scene(groups: Int, options: Int, width: Float, height: Float, sphere
         val f = (target - acc[k]) / max(1e-6f, acc[k + 1] - acc[k])
         Offset(xs[k] + (xs[k + 1] - xs[k]) * f, ys[k] + (ys[k + 1] - ys[k]) * f)
     }
-    return Scene(sphereRx, sphereRy, spheres, heroBig, rx, ry, places, bubble, heroSmall = 2 * (min(rx, ry) - bubble / 2 - gap * 1.5f))
+    return Scene(sphereR, sphereR, spheres, heroBig, rx, ry, places, bubble, heroSmall = 2 * (min(rx, ry) - bubble / 2 - gap * 1.5f))
 }
+
+private const val SMALLEST = 0.7f
