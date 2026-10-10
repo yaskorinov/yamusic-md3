@@ -1,6 +1,13 @@
 package io.github.yaskorinov.yamusic.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -24,7 +31,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -36,6 +48,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -44,7 +57,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.yaskorinov.yamusic.api.WaveGroup
 import io.github.yaskorinov.yamusic.data.Wave
 import io.github.yaskorinov.yamusic.playback.PlayerConnection
 import io.github.yaskorinov.yamusic.playback.PlayerState
@@ -56,12 +68,16 @@ import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
- * «Моя волна» — одна сцена на всю страницу («орбита», перенос WavePage.qml). В центре — фигура с кнопкой,
- * вокруг неё по эллипсу плавают настройки волны: кружки, собранные в дуги по группам. Выбранная настройка
- * притягивается к центру, прилипает к фигуре и получает цвет и форму своей группы; повторное нажатие
- * отпускает её обратно («любое»). Центр тоже отзывается: его форму задаёт настроение, цвет — характер.
+ * «Моя волна» — одна сцена на всю страницу («орбита», по мотивам WavePage.qml). В центре — крупная фигура
+ * с кнопкой, вокруг неё летают четыре сферы-группы настроек, у каждой своя фигура. Нажатие на сферу
+ * разворачивает её: сфера распадается на варианты, они разлетаются по орбите, а центр уменьшается,
+ * уступая им место. Выбранный вариант получает цвет и форму группы и сворачивает орбиту обратно; сфера
+ * группы после этого показывает выбор. Повторное нажатие на выбранный вариант отпускает его («любое»).
+ * Центр тоже отзывается: его форму задаёт настроение, цвет — характер.
  * Движение — только сдвиги и повороты слоёв, перекомпоновки при этом нет.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -72,9 +88,20 @@ fun WaveScreen(wave: Wave, player: PlayerConnection, playerState: PlayerState, c
     val loading by wave.loading.collectAsStateWithLifecycle()
     val error by wave.error.collectAsStateWithLifecycle()
     val colors = MaterialTheme.colorScheme
+    val scope = rememberCoroutineScope()
     val active = playerState.wave
     val playing = active && playerState.playing
-    val flat = remember(groups) { flatten(groups) }
+
+    // Развёрнутая группа (-1 — все свёрнуты) и та, чьи варианты нарисованы: она остаётся и пока орбита сворачивается
+    var expanded by rememberSaveable { mutableIntStateOf(-1) }
+    var shown by remember { mutableIntStateOf(0) }
+    val open = remember { Animatable(0f) }
+    LaunchedEffect(expanded) {
+        if (expanded >= 0) shown = expanded
+        open.animateTo(if (expanded >= 0) 1f else 0f, tween(if (expanded >= 0) 640 else 460, easing = LinearEasing))
+    }
+    val unfolded by remember { derivedStateOf { open.value > 0f } }
+    BackHandler(enabled = expanded >= 0) { expanded = -1 }
 
     // Центр отзывается на выбор
     val heroShape = when (selection["moodEnergy"]?.substringAfterLast(':')) {
@@ -92,33 +119,43 @@ fun WaveScreen(wave: Wave, player: PlayerConnection, playerState: PlayerState, c
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopBar("Моя волна")
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+        BoxWithConstraints(
+            Modifier.weight(1f).fillMaxWidth().pointerInput(expanded) {
+                if (expanded >= 0) detectTapGestures { expanded = -1 } // нажатие мимо вариантов сворачивает орбиту
+            },
+        ) {
             val density = LocalDensity.current
             val width = constraints.maxWidth.toFloat()
             val height = constraints.maxHeight.toFloat()
-            val bubble = with(density) { (maxWidth * 0.17f).coerceIn(60.dp, 84.dp) }
-            val orbit = remember(flat, width, height, bubble) {
-                with(density) { orbit(flat, groups.size, width, height, bubble.toPx(), 8.dp.toPx()) }
+            val sphere = (maxWidth * 0.23f).coerceIn(76.dp, 100.dp)
+            val options = groups.getOrNull(shown)?.items.orEmpty()
+            val scene = remember(groups.size, options.size, width, height, sphere) {
+                with(density) { scene(groups.size, options.size, width, height, sphere.toPx(), (maxWidth * 0.21f).coerceIn(68.dp, 92.dp).toPx(), 10.dp.toPx()) }
             }
-            val hero = with(density) { orbit.hero.toDp().coerceIn(104.dp, 240.dp) }
+            val bubble = with(density) { scene.bubble.toDp() }
+            val hero by animateDpAsState(
+                with(density) { (if (expanded >= 0) scene.heroSmall else scene.heroBig).toDp() },
+                tween(Motion.SpatialSlow, easing = Motion.outBack(1.1f)), label = "hero",
+            )
             val time = rememberTime(true)
             val intro = remember { Animatable(0f) }
             LaunchedEffect(groups) {
                 intro.snapTo(0f)
-                intro.animateTo(1f, tween(1100, easing = LinearEasing))
+                intro.animateTo(1f, tween(900, easing = LinearEasing))
             }
 
-            // Орбита — пунктир
+            // Орбита — пунктир: большая, пока варианты развёрнуты, и та, по которой летают сферы
             Canvas(Modifier.fillMaxSize()) {
+                val dots = Stroke(
+                    1.5.dp.toPx(), cap = StrokeCap.Round,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(1.5.dp.toPx(), 7.5.dp.toPx())),
+                )
+                val unfold = Motion.EmphasizedDecelerate.transform(open.value)
+                val rx = scene.sphereRx + (scene.rx - scene.sphereRx) * unfold
+                val ry = scene.sphereRy + (scene.ry - scene.sphereRy) * unfold
                 drawOval(
-                    colors.outlineVariant,
-                    topLeft = Offset(center.x - orbit.rx, center.y - orbit.ry),
-                    size = Size(orbit.rx * 2, orbit.ry * 2),
-                    alpha = min(1f, intro.value * 2),
-                    style = Stroke(
-                        1.5.dp.toPx(), cap = StrokeCap.Round,
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(1.5.dp.toPx(), 7.5.dp.toPx())),
-                    ),
+                    colors.outlineVariant, Offset(center.x - rx, center.y - ry), Size(rx * 2, ry * 2),
+                    alpha = min(1f, intro.value * 2), style = dots,
                 )
             }
 
@@ -144,44 +181,106 @@ fun WaveScreen(wave: Wave, player: PlayerConnection, playerState: PlayerState, c
                 }
             }
 
-            // Настройки на орбите
-            val reach = with(density) { hero.toPx() / 2 }
-            flat.forEachIndexed { index, entry ->
-                key(entry.key, entry.seed) {
-                    val selected = !entry.caption && selection[entry.key] == entry.seed
-                    // 0 — на орбите, 1 — прилип к центру
-                    val docked by animateFloatAsState(if (selected) 1f else 0f, tween(620, easing = Motion.outBack(1.3f)), label = "dock")
+            // Сферы групп
+            groups.forEachIndexed { index, group ->
+                key(group.key) {
+                    val style = groupStyle(group.key)
+                    val chosen = group.items.firstOrNull { it.seed == selection[group.key] }
                     val source = remember { MutableInteractionSource() }
                     val pressed by source.collectIsPressedAsState()
                     val press by animateFloatAsState(if (pressed) 0.94f else 1f, tween(Motion.SpatialFast, easing = Motion.outBack()), label = "press")
-                    val slot = orbit.at[index]
-                    val dock = orbit.dock[entry.group]
-                    val style = groupStyle(entry.key)
+                    val slot = scene.spheres[index]
                     Box(
                         Modifier
-                            .then(if (entry.caption) Modifier.height(bubble) else Modifier.size(bubble))
-                            .zIndex(if (selected) 2f else if (entry.caption) 0.5f else 0f)
+                            .size(sphere)
                             .graphicsLayer {
-                                // вылет из центра при появлении: по очереди вдоль орбиты
-                                val a = (intro.value * 1.9f - index.toFloat() / flat.size * 0.9f).coerceIn(0f, 1f)
-                                val appear = 1f - (1f - a).pow(3)
-                                // лёгкое покачивание на месте; у центра затихает
-                                val phase = index * 1.7f
+                                // вылет из центра при появлении — по очереди
+                                val a = (intro.value * 1.6f - index.toFloat() / groups.size * 0.6f).coerceIn(0f, 1f)
+                                val appear = Motion.outBack(1.2f).transform(a)
+                                // сфера распадается: та, что нажали, чуть раздувается и тает, остальные уходят
+                                val gone = (open.value / 0.45f).coerceIn(0f, 1f)
                                 val t = time()
-                                val bobX = 4.dp.toPx() * sin(t * 0.45f + phase)
-                                val bobY = 3.5.dp.toPx() * cos(t * 0.37f + phase * 1.3f)
-                                translationX = width / 2 + (slot.x * appear + bobX) * (1 - docked) + dock.x * reach * docked - size.width / 2
-                                translationY = height / 2 + (slot.y * appear + bobY) * (1 - docked) + dock.y * reach * docked - size.height / 2
-                                alpha = appear
-                                scaleX = (0.4f + 0.6f * appear) * press
+                                val phase = index * 1.7f
+                                translationX = width / 2 + slot.x * appear + 6.dp.toPx() * sin(t * 0.45f + phase) - size.width / 2
+                                translationY = height / 2 + slot.y * appear + 6.dp.toPx() * cos(t * 0.37f + phase * 1.3f) - size.height / 2
+                                alpha = a * (1f - gone)
+                                scaleX = (0.4f + 0.6f * a) * press * (if (index == shown) 1f + 0.25f * gone else 1f - 0.3f * gone)
                                 scaleY = scaleX
                             }
-                            .clickable(source, indication = null, enabled = !entry.caption) { wave.select(entry.key, entry.seed, active) },
+                            .clickable(source, indication = null, enabled = expanded < 0) { expanded = index },
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (entry.caption) {
-                            Text(entry.label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = colors.onSurfaceVariant)
-                        } else {
+                        MorphShape(
+                            style.shape,
+                            if (chosen != null) style.color(colors) else colors.surfaceContainerHighest,
+                            Modifier.fillMaxSize(),
+                            rotation = { time() * (if (index % 2 == 0) 5f else -5f) },
+                        )
+                        val tint = if (chosen != null) style.content(colors) else colors.onSurface
+                        Column(Modifier.fillMaxWidth(0.8f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                group.title,
+                                style = if (chosen == null) MaterialTheme.typography.labelLarge else MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (chosen == null) tint else tint.copy(alpha = 0.75f),
+                                maxLines = 1,
+                                softWrap = false,
+                                autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = 14.sp, stepSize = 0.5.sp),
+                            )
+                            if (chosen != null) {
+                                Text(
+                                    chosen.label,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = tint,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = 14.sp, stepSize = 0.5.sp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Варианты развёрнутой группы: разлетаются из её сферы по орбите
+            if (unfolded || expanded >= 0) {
+                val group = groups.getOrNull(shown)
+                val style = groupStyle(group?.key.orEmpty())
+                val from = scene.spheres.getOrElse(shown) { Offset.Zero }
+                options.forEachIndexed { index, item ->
+                    key(group?.key, item.seed) {
+                        val selected = group != null && selection[group.key] == item.seed
+                        val source = remember { MutableInteractionSource() }
+                        val pressed by source.collectIsPressedAsState()
+                        val press by animateFloatAsState(if (pressed) 0.94f else 1f, tween(Motion.SpatialFast, easing = Motion.outBack()), label = "press")
+                        val slot = scene.options.getOrElse(index) { Offset.Zero }
+                        Box(
+                            Modifier
+                                .size(bubble)
+                                .zIndex(2f)
+                                .graphicsLayer {
+                                    // по очереди вдоль орбиты, с лёгким перелётом
+                                    val a = (open.value * 1.5f - index.toFloat() / options.size * 0.5f).coerceIn(0f, 1f)
+                                    val fly = Motion.outBack(1.3f).transform(a)
+                                    val t = time()
+                                    val phase = index * 1.7f
+                                    translationX = width / 2 + from.x + (slot.x - from.x) * fly + 4.dp.toPx() * sin(t * 0.45f + phase) * a - size.width / 2
+                                    translationY = height / 2 + from.y + (slot.y - from.y) * fly + 3.5.dp.toPx() * cos(t * 0.37f + phase * 1.3f) * a - size.height / 2
+                                    alpha = (a * 2.5f).coerceIn(0f, 1f)
+                                    scaleX = (0.3f + 0.7f * fly) * press
+                                    scaleY = scaleX
+                                }
+                                .clickable(source, indication = null, enabled = expanded >= 0 && group != null) {
+                                    wave.select(group!!.key, item.seed, active)
+                                    // выбор виден мгновение — и орбита сворачивается
+                                    scope.launch {
+                                        delay(280)
+                                        expanded = -1
+                                    }
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
                             MorphShape(
                                 if (selected) style.shape else Shapes.Circle,
                                 if (selected) style.color(colors) else colors.surfaceContainerHighest,
@@ -189,15 +288,15 @@ fun WaveScreen(wave: Wave, player: PlayerConnection, playerState: PlayerState, c
                                 rotation = { if (selected) time() * 6f else 0f },
                             )
                             Text(
-                                entry.label,
-                                Modifier.fillMaxWidth(0.84f),
-                                style = MaterialTheme.typography.labelMedium,
+                                item.label,
+                                Modifier.fillMaxWidth(0.82f),
+                                style = MaterialTheme.typography.labelLarge,
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                 color = if (selected) style.content(colors) else colors.onSurface,
                                 textAlign = TextAlign.Center,
                                 maxLines = 1,
                                 softWrap = false,
-                                autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = 13.sp, stepSize = 0.5.sp),
+                                autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = 14.sp, stepSize = 0.5.sp),
                             )
                         }
                     }
@@ -205,32 +304,30 @@ fun WaveScreen(wave: Wave, player: PlayerConnection, playerState: PlayerState, c
             }
         }
 
-        // Подпись под орбитой: что играет / подсказка
+        // Подпись под орбитой: какая группа развёрнута / что играет / подсказка
         val track = playerState.track
         Box(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 32.dp), contentAlignment = Alignment.Center) {
-            Text(
+            AnimatedContent(
                 when {
                     error.isNotEmpty() -> error
+                    expanded >= 0 -> groups.getOrNull(expanded)?.title.orEmpty()
                     active && track != null -> "${track.title} — ${track.artists}"
                     else -> "Бесконечный поток под ваш вкус"
                 },
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (error.isEmpty()) colors.onSurfaceVariant else colors.error,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+                transitionSpec = { fadeIn(tween(Motion.EffectsDefault)) togetherWith fadeOut(tween(Motion.EffectsFast)) },
+                label = "caption",
+            ) { text ->
+                Text(
+                    text,
+                    Modifier.fillMaxWidth(),
+                    style = if (expanded >= 0 && error.isEmpty()) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge,
+                    color = if (error.isEmpty()) colors.onSurfaceVariant else colors.error,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
-    }
-}
-
-/** То, что летает: заголовки групп тоже стоят на орбите. */
-private class Entry(val caption: Boolean, val group: Int, val key: String, val label: String, val seed: String)
-
-private fun flatten(groups: List<WaveGroup>): List<Entry> = buildList {
-    groups.forEachIndexed { index, group ->
-        add(Entry(true, index, group.key, group.title, ""))
-        for (item in group.items) add(Entry(false, index, group.key, item.label, item.seed))
     }
 }
 
@@ -250,55 +347,55 @@ private val GROUP_STYLES = mapOf(
 
 private fun groupStyle(key: String) = GROUP_STYLES[key] ?: GROUP_STYLES.getValue("context")
 
-/** Раскладка сцены: полуоси орбиты, места настроек (от центра), направления «причала» групп и размер центра. */
-private class Orbit(val rx: Float, val ry: Float, val at: List<Offset>, val dock: List<Offset>, val hero: Float)
+/**
+ * Раскладка сцены, от центра. Свёрнутая: [spheres] — места сфер на своей орбите, [heroBig] — центр.
+ * Развёрнутая: [options] — места вариантов на большой орбите ([rx], [ry]), [bubble] — их размер, [heroSmall] — центр.
+ */
+private class Scene(
+    val sphereRx: Float, val sphereRy: Float, val spheres: List<Offset>, val heroBig: Float,
+    val rx: Float, val ry: Float, val options: List<Offset>, val bubble: Float, val heroSmall: Float,
+)
 
 /**
- * Места на орбите — равные шаги по длине дуги эллипса, от низа по часовой стрелке. Соседи стоят по разные
- * стороны от орбиты (сдвиг [delta] по нормали): на узком экране кружки не мельчают, а расходятся на два
- * кольца. Заголовки групп остаются на самой орбите. На телефоне эллипс вытянут по вертикали и у боков
- * центра места нет, поэтому выбранные настройки причаливают к фигуре по диагоналям — у каждой группы
- * своя, в том же порядке, что и дуги на орбите.
+ * Сферы стоят по диагоналям — на телефоне сцена вытянута по вертикали, и у боков крупного центра места нет.
+ * Варианты — равные шаги по длине дуги эллипса у самого края сцены; если их много, кружки мельчают.
  */
-private fun orbit(flat: List<Entry>, groups: Int, width: Float, height: Float, bubble: Float, gap: Float): Orbit {
-    val n = flat.size
-    val outerX = width / 2 - bubble / 2 - gap
-    val outerY = height / 2 - bubble / 2 - gap
-    var delta = bubble * 0.3f
-    var rx = outerX
-    var ry = outerY
-    repeat(4) {
-        rx = outerX - delta
-        ry = outerY - delta
-        val spacing = 2 * PI.toFloat() * sqrt((rx * rx + ry * ry) / 2) / max(1, n)
-        // с запасом: на крутых концах эллипса внутреннее кольцо короче самой орбиты
-        delta = max(gap, sqrt(max(0f, (bubble + gap).pow(2) - spacing * spacing)) / 2 * 1.15f)
+private fun scene(groups: Int, options: Int, width: Float, height: Float, sphere: Float, wanted: Float, gap: Float): Scene {
+    val turn = 2 * PI.toFloat()
+    val sphereRx = width / 2 - sphere / 2 - gap
+    val sphereRy = min(height / 2 - sphere / 2 - gap, sphereRx * 1.75f)
+    val spheres = List(groups) { g ->
+        val a = PI.toFloat() / 2 + turn * (g + 0.5f) / max(1, groups)
+        Offset(sphereRx * cos(a), sphereRy * sin(a))
+    }
+    val nearest = spheres.minOfOrNull { hypot(it.x, it.y) } ?: min(sphereRx, sphereRy)
+    val heroBig = min(width * 0.64f, 2 * (nearest - sphere / 2 - gap))
+
+    var bubble = wanted
+    var rx = 0f
+    var ry = 0f
+    repeat(3) {
+        rx = width / 2 - bubble / 2 - gap
+        ry = height / 2 - bubble / 2 - gap
+        val spacing = turn * sqrt((rx * rx + ry * ry) / 2) / max(1, options)
+        bubble = min(bubble, spacing - gap)
     }
     val steps = 720
     val xs = FloatArray(steps + 1)
     val ys = FloatArray(steps + 1)
     val acc = FloatArray(steps + 1)
     for (k in 0..steps) {
-        val a = PI.toFloat() / 2 + 2 * PI.toFloat() * k / steps
+        val a = PI.toFloat() / 2 + turn * k / steps
         xs[k] = rx * cos(a)
         ys[k] = ry * sin(a)
         if (k > 0) acc[k] = acc[k - 1] + hypot(xs[k] - xs[k - 1], ys[k] - ys[k - 1])
     }
     var k = 0
-    val at = List(n) { i ->
-        val target = acc[steps] * (i + 0.5f) / n
+    val places = List(options) { i ->
+        val target = acc[steps] * (i + 0.5f) / options
         while (k < steps - 1 && acc[k + 1] < target) k++
         val f = (target - acc[k]) / max(1e-6f, acc[k + 1] - acc[k])
-        val a = PI.toFloat() / 2 + 2 * PI.toFloat() * (k + f) / steps
-        // нормаль к эллипсу в этой точке
-        val nx = cos(a) / rx
-        val ny = sin(a) / ry
-        val side = (if (flat[i].caption) 0f else if (i % 2 == 1) delta else -delta) / hypot(nx, ny)
-        Offset(xs[k] + (xs[k + 1] - xs[k]) * f + nx * side, ys[k] + (ys[k + 1] - ys[k]) * f + ny * side)
+        Offset(xs[k] + (xs[k + 1] - xs[k]) * f, ys[k] + (ys[k + 1] - ys[k]) * f)
     }
-    val dock = List(groups) { g ->
-        val a = PI.toFloat() / 2 + 2 * PI.toFloat() * (g + 0.5f) / groups
-        Offset(cos(a), sin(a))
-    }
-    return Orbit(rx, ry, at, dock, hero = 2 * (min(rx, ry) - delta - bubble / 2 - gap))
+    return Scene(sphereRx, sphereRy, spheres, heroBig, rx, ry, places, bubble, heroSmall = 2 * (min(rx, ry) - bubble / 2 - gap * 1.5f))
 }

@@ -113,12 +113,26 @@ private fun SyncedLyrics(lyrics: Lyrics, player: PlayerConnection, playing: Bool
     val lines = lyrics.lines
     val listState = rememberLazyListState()
 
-    // Позиция — раз в кадр, пока играет: её читают только заливаемые строки и расчёт номера строки
+    // Позиция — раз в кадр, пока играет: её читают только заливаемые строки и расчёт номера строки.
+    // Плеер время от времени поправляет свою оценку позиции, в том числе назад, — заливка от этого
+    // дёргалась. Поэтому между кадрами время идёт по часам, мелкое расхождение подтягивается плавно
+    // и без шагов назад, а перемотка (расхождение больше 0,3 с) применяется скачком — как на десктопе.
     var position by remember { mutableFloatStateOf(player.positionMs / 1000f) }
     LaunchedEffect(playing) {
+        position = player.positionMs / 1000f
+        if (!playing) {
+            while (true) {
+                delay(250)
+                position = player.positionMs / 1000f
+            }
+        }
+        var last = withFrameNanos { it }
         while (true) {
-            position = player.positionMs / 1000f
-            if (playing) withFrameNanos { } else delay(250)
+            val now = withFrameNanos { it }
+            val predicted = position + (now - last) / 1e9f
+            last = now
+            val error = player.positionMs / 1000f - predicted
+            position = if (abs(error) > 0.3f) predicted + error else max(position, predicted + error * 0.06f)
         }
     }
     val active by remember(lines) {
@@ -223,33 +237,41 @@ private fun Line(line: LyricLine, distance: Int, filling: Boolean, position: () 
                 if (!filling || measured == null) return@drawWithContent
                 // Звучащее слово и его готовность → где фронт заливки
                 val now = position()
+                val feather = FEATHER.toPx()
                 var start = 0
-                var front = -1f
+                var front = Float.NaN
                 var row = 0
+                var done = Float.NaN // где фронт остановился на предыдущем слове этой же строки
                 for (word in line.words) {
                     if (word.start > now) break
                     val end = start + word.text.trimEnd().length
                     val left = measured.getHorizontalPosition(start, true)
                     val right = measured.getHorizontalPosition(end, true)
                     val part = ((now - word.start) / (word.end - word.start).coerceAtLeast(0.05f)).coerceIn(0f, 1f)
-                    row = measured.getLineForOffset(start)
-                    // слово, перенесённое на новую строку, начинается с её левого края
-                    front = if (right >= left) left + (right - left) * part else size.width
+                    val wordRow = measured.getLineForOffset(start)
+                    if (wordRow != row) done = Float.NaN
+                    row = wordRow
+                    // Фронт мягкий, поэтому проходит слово с запасом на полуширину размытия: в конце слово
+                    // залито целиком. Начинает он не левее места, где закончил предыдущее слово, — назад не идёт.
+                    val from = if (done.isNaN()) left - feather else max(left - feather, done)
+                    val to = (if (right >= left) right else size.width) + feather
+                    front = from + (to - from) * part
+                    done = to
                     start += word.text.length
                 }
-                if (front < 0f) return@drawWithContent
+                if (front.isNaN()) return@drawWithContent
                 val top = measured.getLineTop(row)
                 val bottom = measured.getLineBottom(row)
                 // строки выше уже спеты целиком
                 if (row > 0) clipRect(bottom = top) { drawText(measured, color) }
-                val feather = FEATHER.toPx()
                 drawContext.canvas.saveLayer(Rect(0f, top, size.width, bottom), Paint())
                 clipRect(top = top, bottom = bottom) { drawText(measured, color) }
                 drawRect(
                     Brush.horizontalGradient(
-                        ((front - feather) / size.width).coerceIn(0f, 0.999f) to Color.Black,
-                        ((front + feather) / size.width).coerceIn(0.001f, 1f) to Color.Transparent,
-                        endX = size.width,
+                        0f to Color.Black,
+                        1f to Color.Transparent,
+                        startX = front - feather,
+                        endX = front + feather,
                     ),
                     topLeft = Offset(0f, top),
                     size = Size(size.width, bottom - top),

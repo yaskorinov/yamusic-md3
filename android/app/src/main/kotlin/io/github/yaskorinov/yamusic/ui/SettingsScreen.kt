@@ -1,5 +1,10 @@
 package io.github.yaskorinov.yamusic.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -21,7 +26,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderState
@@ -76,7 +80,7 @@ private val BACKDROPS = listOf(
 /** Настройки (перенос SettingsPage.qml): группы-карточки с заголовком и значком, строки «подпись — контрол». */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun SettingsScreen(app: App, contentPadding: PaddingValues, onBack: () -> Unit) {
+fun SettingsScreen(app: App, contentPadding: PaddingValues, onBack: (() -> Unit)? = null) {
     val settings = app.settings
     val account = app.session.account
     val colors = MaterialTheme.colorScheme
@@ -280,25 +284,19 @@ private fun Toggle(title: String, description: String, pref: Pref<Boolean>) {
     SettingRow(title, description) { Switch(checked = on, onCheckedChange = { pref.value = it }) }
 }
 
-/** Выбор одного из вариантов чипами; под ними — пояснение к выбранному. */
-@OptIn(ExperimentalLayoutApi::class)
+/** Выбор одного из вариантов сплошной кнопкой с перетекающей подсветкой; под ней — пояснение к выбранному. */
 @Composable
 private fun Choice(title: String, options: List<Triple<String, String, String>>, pref: Pref<String>) {
     val chosen by pref.flow.collectAsStateWithLifecycle()
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(title, style = MaterialTheme.typography.bodyLarge)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for ((value, name) in options) {
-                FilterChip(
-                    selected = chosen == value,
-                    onClick = { pref.value = value },
-                    label = { Text(name) },
-                    leadingIcon = if (chosen == value) ({ Symbol("check", size = 18.dp) }) else null,
-                )
+        FlowChoice(options.map { it.first to it.second }, chosen, { pref.value = it })
+        val hint = options.firstOrNull { it.first == chosen }?.third.orEmpty()
+        if (hint.isNotEmpty()) {
+            AnimatedContent(hint, transitionSpec = { fadeIn(tween(Motion.EffectsDefault)) togetherWith fadeOut(tween(Motion.EffectsFast)) }, label = "hint") {
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        val hint = options.firstOrNull { it.first == chosen }?.third.orEmpty()
-        if (hint.isNotEmpty()) Text(hint, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

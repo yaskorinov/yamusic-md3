@@ -52,7 +52,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -168,10 +167,22 @@ fun MiniPlayer(state: PlayerState, app: App, onOpen: (Offset) -> Unit, modifier:
  * Полноэкранный плеер. Раскрывается через «окно» — случайную фигуру MD3 Expressive: фаза 1 — фигура
  * быстро вращается и растёт из маленькой (на обложке мини-плеера, [origin]) до средней, уходя к центру;
  * фаза 2 — растёт на весь экран, пока весь экран не окажется внутри неё. Закрытие — тот же путь обратно.
+ * [tab] — что показано вместо обложки: "" — обложка, lyrics — текст, queue — очередь; выбор хранит вызывающий,
+ * так что открытый текст остаётся открытым и после сворачивания плеера.
  * [onOpenPage] — перейти на страницу исполнителя или альбома (плеер при этом сворачивается).
  */
 @Composable
-fun NowPlaying(open: Boolean, origin: Offset, state: PlayerState, app: App, direction: Int, onClose: () -> Unit, onOpenPage: (String) -> Unit) {
+fun NowPlaying(
+    open: Boolean,
+    origin: Offset,
+    state: PlayerState,
+    app: App,
+    direction: Int,
+    tab: String,
+    onTab: (String) -> Unit,
+    onClose: () -> Unit,
+    onOpenPage: (String) -> Unit,
+) {
     val reveal = remember { Animatable(0f) }
     var window by remember { mutableStateOf(Shapes.Cookie9) }
     LaunchedEffect(open) {
@@ -216,7 +227,6 @@ fun NowPlaying(open: Boolean, origin: Offset, state: PlayerState, app: App, dire
         CoverBackdrop(mode, blur, drift, running = open && state.playing, modifier = Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().background(colors.surface.copy(alpha = if (theme.dark) 0.62f else 0.55f)))
 
-        var tab by rememberSaveable { mutableStateOf("") } // "" — обложка, lyrics, queue
         val shift = with(LocalDensity.current) { 80.dp.roundToPx() }
         Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             // Свернуть + переключатель текст/очередь: повторное нажатие возвращает обложку
@@ -226,7 +236,7 @@ fun NowPlaying(open: Boolean, origin: Offset, state: PlayerState, app: App, dire
                 Segments(
                     listOf(Segment(icon = "title"), Segment(icon = "queue_music")),
                     selected = TABS.indexOf(tab),
-                    onSelect = { tab = if (tab == TABS[it]) "" else TABS[it] },
+                    onSelect = { onTab(if (tab == TABS[it]) "" else TABS[it]) },
                 )
             }
             // Смена вкладки — shared axis X: текст слева, очередь справа
@@ -478,6 +488,7 @@ private fun QueuePane(player: PlayerConnection, state: PlayerState) {
                 current = index == state.index,
                 onClick = { player.playAt(index) },
                 number = index + 1,
+                modifier = Modifier.animateItem(),
                 trailing = {
                     // У текущего трека крестика нет, но место под него остаётся: длительности стоят в один столбец
                     Box(Modifier.size(36.dp).clip(CircleShape).clickable(enabled = index != state.index) { player.removeAt(index) }, contentAlignment = Alignment.Center) {

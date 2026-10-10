@@ -1,5 +1,12 @@
 package io.github.yaskorinov.yamusic.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -48,7 +55,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -192,9 +198,8 @@ fun TrackListScreen(
                                 }
                             }
                         }
-                        if (searchOpen) {
-                            Spacer(Modifier.height(10.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                        AnimatedVisibility(searchOpen, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                            Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                                 SearchField(query, { query = it }, "Найти в списке", Modifier.weight(1f), focus = true)
                                 if (filtering) {
                                     Text(
@@ -231,6 +236,7 @@ fun TrackListScreen(
                         current = track.id == playerState.track?.id,
                         onClick = { player.play(tracks, index, context) },
                         number = if (numbered) index + 1 else null,
+                        modifier = Modifier.animateItem(),
                     )
                 }
                 if (loading) {
@@ -343,16 +349,24 @@ val LocalLibrary = staticCompositionLocalOf<Library?> { null }
  * на подложке цвета темы, а его обложка морфится в «печеньку». [trailing] — что поставить в конец строки.
  */
 @Composable
-fun TrackRow(track: Track, current: Boolean, onClick: () -> Unit, number: Int? = null, trailing: (@Composable () -> Unit)? = null) {
+fun TrackRow(
+    track: Track,
+    current: Boolean,
+    onClick: () -> Unit,
+    number: Int? = null,
+    modifier: Modifier = Modifier,
+    trailing: (@Composable () -> Unit)? = null,
+) {
     val colors = MaterialTheme.colorScheme
     val library = LocalLibrary.current
     val liked = library?.likedIds?.collectAsStateWithLifecycle()?.value?.contains(track.id) == true
+    val highlight by animateColorAsState(if (current) colors.primary.copy(alpha = 0.12f) else colors.primary.copy(alpha = 0f), tween(Motion.EffectsDefault), label = "current")
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .height(64.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(if (current) colors.primary.copy(alpha = 0.12f) else Color.Transparent)
+            .background(highlight)
             .clickable(enabled = track.available, onClick = onClick)
             .padding(start = 12.dp, end = if (trailing == null) 12.dp else 4.dp)
             .alpha(if (track.available) 1f else 0.38f),

@@ -1,5 +1,11 @@
 package io.github.yaskorinov.yamusic.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -89,29 +95,42 @@ fun SearchScreen(
             }
         }
         val bottom = contentPadding.calculateBottomPadding() + 16.dp
-        when (val search = state) {
-            is SearchState.Found -> Results(search.result, filter, { filter = it }, player, playerState, bottom, onOpenAlbum, onOpenArtist)
-            SearchState.Loading -> Box(Modifier.fillMaxWidth().padding(top = 64.dp), contentAlignment = Alignment.Center) {
-                LoadingIndicator(Modifier.size(64.dp))
+        // Состояние поиска и фильтр сменяются через fade through: новое всплывает снизу
+        AnimatedContent(
+            targetState = state to filter,
+            contentKey = { (search, chosen) -> if (search is SearchState.Found) "found:$chosen:${search.result.hashCode()}" else search::class },
+            transitionSpec = {
+                (fadeIn(tween(260, delayMillis = 60)) + slideInVertically(tween(460, delayMillis = 60, easing = Motion.EmphasizedDecelerate)) { it / 24 }) togetherWith
+                    fadeOut(tween(120))
+            },
+            label = "search",
+        ) { (search, chosen) ->
+            when (search) {
+                is SearchState.Found -> Results(search.result, chosen, { filter = it }, player, playerState, bottom, onOpenAlbum, onOpenArtist)
+                SearchState.Loading -> Box(Modifier.fillMaxSize().padding(top = 64.dp), contentAlignment = Alignment.TopCenter) {
+                    LoadingIndicator(Modifier.size(64.dp))
+                }
+                else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                    EmptyState(
+                        icon = when (search) {
+                            SearchState.Empty -> "search_off"
+                            is SearchState.Failed -> "cloud_off"
+                            else -> "travel_explore"
+                        },
+                        title = when (search) {
+                            SearchState.Empty -> "Ничего не нашлось"
+                            is SearchState.Failed -> "Поиск не ответил"
+                            else -> "Что послушаем?"
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(top = 48.dp),
+                        text = when (search) {
+                            SearchState.Empty -> "Попробуйте написать иначе"
+                            is SearchState.Failed -> search.error
+                            else -> "Ищите треки, альбомы и исполнителей"
+                        },
+                    )
+                }
             }
-            else -> EmptyState(
-                icon = when (search) {
-                    SearchState.Empty -> "search_off"
-                    is SearchState.Failed -> "cloud_off"
-                    else -> "travel_explore"
-                },
-                title = when (search) {
-                    SearchState.Empty -> "Ничего не нашлось"
-                    is SearchState.Failed -> "Поиск не ответил"
-                    else -> "Что послушаем?"
-                },
-                modifier = Modifier.fillMaxWidth().padding(top = 48.dp),
-                text = when (search) {
-                    SearchState.Empty -> "Попробуйте написать иначе"
-                    is SearchState.Failed -> search.error
-                    else -> "Ищите треки, альбомы и исполнителей"
-                },
-            )
         }
     }
 }

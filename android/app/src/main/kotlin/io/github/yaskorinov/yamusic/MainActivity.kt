@@ -10,7 +10,12 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.EaseOutCubic
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -43,12 +48,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.yaskorinov.yamusic.data.AuthState
 import io.github.yaskorinov.yamusic.playback.PlayContext
 import io.github.yaskorinov.yamusic.playback.PlayerState
 import io.github.yaskorinov.yamusic.ui.ArtistScreen
+import io.github.yaskorinov.yamusic.ui.Avatar
 import io.github.yaskorinov.yamusic.ui.CollectionScreen
 import io.github.yaskorinov.yamusic.ui.CoverBackdrop
 import io.github.yaskorinov.yamusic.ui.LocalDownloaded
@@ -56,11 +64,14 @@ import io.github.yaskorinov.yamusic.ui.LocalLibrary
 import io.github.yaskorinov.yamusic.ui.LocalTheme
 import io.github.yaskorinov.yamusic.ui.LoginScreen
 import io.github.yaskorinov.yamusic.ui.MiniPlayer
+import io.github.yaskorinov.yamusic.ui.Motion
+import io.github.yaskorinov.yamusic.ui.NavCircle
 import io.github.yaskorinov.yamusic.ui.NavItem
 import io.github.yaskorinov.yamusic.ui.NowPlaying
 import io.github.yaskorinov.yamusic.ui.SearchScreen
 import io.github.yaskorinov.yamusic.ui.SettingsScreen
 import io.github.yaskorinov.yamusic.ui.Shapes
+import io.github.yaskorinov.yamusic.ui.Symbol
 import io.github.yaskorinov.yamusic.ui.TrackListScreen
 import io.github.yaskorinov.yamusic.ui.WaveScreen
 import io.github.yaskorinov.yamusic.ui.YaTheme
@@ -139,20 +150,23 @@ private class Turn(private var index: Int) {
     }
 }
 
-// Разделы — те же, что в боковой панели десктопного клиента, и в том же порядке
+// Разделы нижней панели: поиск — кружком слева, аккаунт с настройками — кружком справа, между ними — подписанные
 private enum class Tab(val title: String, val icon: String) {
     Search("Поиск", "search"),
     Wave("Моя волна", "graphic_eq"),
     Collection("Коллекция", "favorite"),
+    Account("Аккаунт", "person"),
 }
 
 // Страницы поверх корня вкладки; путь вкладки — они же через перевод строки (так он переживает поворот экрана)
 private const val PAGE_LIKED = "liked"
-private const val PAGE_SETTINGS = "settings"
 private const val PAGE_DOWNLOADED = "downloaded"
 private const val PAGE_PLAYLIST = "playlist:"
 private const val PAGE_ALBUM = "album:"
 private const val PAGE_ARTIST = "artist:"
+
+/** Что показано: раздел, верхняя страница его стека и глубина стека — по ним выбирается переход. */
+private data class Shown(val tab: Tab, val page: String, val depth: Int)
 
 /**
  * Главный экран: страница раздела, над ней плавает мини-плеер-пилюля, внизу — разделы. За всем этим —
@@ -161,27 +175,21 @@ private const val PAGE_ARTIST = "artist:"
 @Composable
 private fun Home(app: App, playerState: PlayerState, direction: Int) {
     var expanded by rememberSaveable { mutableStateOf(false) }
+    var playerTab by rememberSaveable { mutableStateOf("") }
     var origin by remember { mutableStateOf(Offset.Zero) }
     var tab by rememberSaveable { mutableStateOf(Tab.Wave) }
-    var wavePath by rememberSaveable { mutableStateOf("") }
-    var collectionPath by rememberSaveable { mutableStateOf("") }
-    var searchPath by rememberSaveable { mutableStateOf("") }
+    // У каждого раздела свой стек страниц
+    var paths by rememberSaveable { mutableStateOf(List(Tab.entries.size) { "" }) }
     val hasTrack = playerState.track != null
 
-    val path = when (tab) {
-        Tab.Collection -> collectionPath
-        Tab.Search -> searchPath
-        Tab.Wave -> wavePath
-    }
-    val setPath: (String) -> Unit = {
-        when (tab) {
-            Tab.Collection -> collectionPath = it
-            Tab.Search -> searchPath = it
-            Tab.Wave -> wavePath = it
-        }
-    }
+    val path = paths[tab.ordinal]
+    val setPath: (String) -> Unit = { value -> paths = paths.mapIndexed { index, old -> if (index == tab.ordinal) value else old } }
     val push: (String) -> Unit = { setPath(if (path.isEmpty()) it else "$path\n$it") }
     val pop: () -> Unit = { setPath(path.substringBeforeLast('\n', "")) }
+    val select: (Tab) -> Unit = {
+        if (tab == it) setPath("") // повторное нажатие — к корню раздела
+        tab = it
+    }
 
     val theme = LocalTheme.current
     val settings = app.settings
@@ -189,6 +197,7 @@ private fun Home(app: App, playerState: PlayerState, direction: Int) {
     val mode by settings.backdropMode.flow.collectAsStateWithLifecycle()
     val drift by settings.nowPlayingDrift.flow.collectAsStateWithLifecycle()
     val downloadedIds by app.downloads.done.collectAsStateWithLifecycle()
+    val density = LocalDensity.current
     CompositionLocalProvider(LocalDownloaded provides downloadedIds.keys, LocalLibrary provides app.library) {
         Box(Modifier.fillMaxSize()) {
             if (ambient && hasTrack) {
@@ -208,12 +217,31 @@ private fun Home(app: App, playerState: PlayerState, direction: Int) {
                         top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
                         bottom = if (hasTrack) 88.dp else 0.dp, // под плавающий мини-плеер
                     )
+                    // Переходы — как у страниц десктопного клиента (Router.qml). Между разделами — fade through:
+                    // новая страница всплывает снизу и чуть «дорастает» до размера. Вглубь и назад — shared axis X:
+                    // страницы едут по горизонтали навстречу друг другу.
                     AnimatedContent(
-                        targetState = tab to path.substringAfterLast('\n'),
-                        transitionSpec = { fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(100)) },
+                        targetState = Shown(tab, path.substringAfterLast('\n'), if (path.isEmpty()) 0 else path.count { it == '\n' } + 1),
+                        transitionSpec = {
+                            val into = tween<Float>(260, delayMillis = 60, easing = EaseOutCubic)
+                            val out = tween<Float>(160, easing = EaseOutCubic)
+                            val arrive = tween<IntOffset>(560, delayMillis = 60, easing = Motion.EmphasizedDecelerate)
+                            val leave = tween<IntOffset>(300, easing = Motion.EmphasizedAccelerate)
+                            with(density) {
+                                if (initialState.tab != targetState.tab) {
+                                    (fadeIn(into) + slideInVertically(arrive) { 72.dp.roundToPx() } +
+                                        scaleIn(tween(560, delayMillis = 60, easing = Motion.EmphasizedDecelerate), initialScale = 0.94f)) togetherWith
+                                        (fadeOut(out) + slideOutVertically(leave) { -24.dp.roundToPx() } + scaleOut(tween(300, easing = EaseOutCubic), targetScale = 0.97f))
+                                } else {
+                                    val way = if (targetState.depth >= initialState.depth) 1 else -1
+                                    (fadeIn(into) + slideInHorizontally(arrive) { way * 140.dp.roundToPx() }) togetherWith
+                                        (fadeOut(out) + slideOutHorizontally(leave) { -way * 70.dp.roundToPx() })
+                                }
+                            }
+                        },
                         label = "page",
-                    ) { (shownTab, page) ->
-                        Page(app, playerState, shownTab, page, padding, push, pop)
+                    ) { shown ->
+                        Page(app, playerState, shown.tab, shown.page, padding, push, pop)
                     }
                     androidx.compose.animation.AnimatedVisibility(
                         visible = hasTrack,
@@ -234,19 +262,17 @@ private fun Home(app: App, playerState: PlayerState, direction: Int) {
                 }
                 Row(
                     Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp).padding(top = 4.dp, bottom = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    for (item in Tab.entries) {
-                        NavItem(
-                            icon = item.icon,
-                            text = item.title,
-                            selected = tab == item,
-                            onClick = {
-                                if (tab == item) setPath("") // повторное нажатие — к корню раздела
-                                tab = item
-                            },
-                        )
+                    NavCircle(tab == Tab.Search, { select(Tab.Search) }) {
+                        Symbol("search", filled = tab == Tab.Search, tint = if (tab == Tab.Search) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)) {
+                        for (item in listOf(Tab.Wave, Tab.Collection)) {
+                            NavItem(icon = item.icon, text = item.title, selected = tab == item, onClick = { select(item) })
+                        }
+                    }
+                    NavCircle(tab == Tab.Account, { select(Tab.Account) }) { Avatar(app.session.account?.displayName.orEmpty(), size = 36.dp) }
                 }
             }
             NowPlaying(
@@ -255,6 +281,8 @@ private fun Home(app: App, playerState: PlayerState, direction: Int) {
                 state = playerState,
                 app = app,
                 direction = direction,
+                tab = playerTab,
+                onTab = { playerTab = it },
                 onClose = { expanded = false },
                 onOpenPage = {
                     expanded = false
@@ -332,7 +360,6 @@ private fun Page(
             onBack = pop,
             downloads = app.downloads,
         )
-        page == PAGE_SETTINGS -> SettingsScreen(app, padding, onBack = pop)
         page.startsWith(PAGE_ALBUM) -> {
             val id = page.removePrefix(PAGE_ALBUM)
             val data = remember(id) { app.catalog.album(id) }
@@ -371,6 +398,7 @@ private fun Page(
             )
         }
         tab == Tab.Wave -> WaveScreen(app.wave, app.player, playerState, padding)
+        tab == Tab.Account -> SettingsScreen(app, padding)
         tab == Tab.Search -> SearchScreen(
             catalog = app.catalog,
             player = app.player,
@@ -381,9 +409,7 @@ private fun Page(
         )
         else -> CollectionScreen(
             library = app.library,
-            account = app.session.account,
             contentPadding = padding,
-            onOpenSettings = { push(PAGE_SETTINGS) },
             onOpenLiked = { push(PAGE_LIKED) },
             downloadedCount = downloaded.size,
             onOpenDownloaded = { push(PAGE_DOWNLOADED) },

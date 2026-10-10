@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.TextAutoSize
@@ -140,12 +139,13 @@ fun ArtistScreen(
                     item(key = "popular") {
                         SectionHeader(
                             "Популярные треки",
+                            Modifier.animateItem(),
                             actionText = if (tracks.size > POPULAR) (if (allPopular) "Свернуть" else "Все") else "",
                             onAction = { allPopular = !allPopular },
                         )
                     }
                     itemsIndexed(if (allPopular) tracks else tracks.take(POPULAR), key = { _, track -> track.id }) { index, track ->
-                        Box(Modifier.padding(horizontal = 8.dp)) {
+                        Box(Modifier.animateItem().padding(horizontal = 8.dp)) {
                             TrackRow(track, current = track.id == playerState.track?.id, onClick = { player.play(tracks, index, PlayContext.Artist) }, number = index + 1)
                         }
                     }
@@ -155,11 +155,14 @@ fun ArtistScreen(
                     item(key = "albums") {
                         SectionHeader(
                             "Альбомы и синглы",
+                            Modifier.animateItem(),
                             actionText = if (albums.size > TILE_COLUMNS * 2) (if (allAlbums) "Свернуть" else "Все") else "",
                             onAction = { allAlbums = !allAlbums },
                         )
                     }
-                    items(shown.chunked(TILE_COLUMNS)) { row -> TileRow(row) { album, modifier -> AlbumTile(album, modifier, onOpen = onOpenAlbum) } }
+                    itemsIndexed(shown.chunked(TILE_COLUMNS), key = { index, _ -> "albums:$index" }) { _, row ->
+                        Box(Modifier.animateItem()) { TileRow(row) { album, modifier -> AlbumTile(album, modifier, onOpen = onOpenAlbum) } }
+                    }
                 }
                 if (loading) {
                     item(key = "loading") {

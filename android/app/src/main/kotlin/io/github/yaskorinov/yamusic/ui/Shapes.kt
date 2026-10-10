@@ -101,6 +101,7 @@ object Motion {
 
     val Emphasized: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
     val EmphasizedDecelerate: Easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
+    val EmphasizedAccelerate: Easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
 
     /** Кривая с перелётом (Easing.OutBack в Qt). */
     fun outBack(overshoot: Float = 1.25f) = Easing { x ->

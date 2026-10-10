@@ -9,6 +9,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -35,10 +36,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,6 +60,8 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,11 +72,14 @@ import io.github.yaskorinov.yamusic.api.Track
 import io.github.yaskorinov.yamusic.data.Library
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.random.Random
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Play/Pause в «печеньке» MD3 Expressive. Во время воспроизведения фигура медленно вращается,
@@ -131,6 +140,30 @@ fun WavyProgress(
     val time = rememberTime(wavy)
     var drag by remember { mutableStateOf<Float?>(null) }
     val path = remember { Path() }
+    // Показанное значение догоняет настоящее плавно: перемотка и смена трека — не скачком.
+    // Обычный ход трека меньше порога и идёт без запаздывания.
+    val shownValue = remember { mutableFloatStateOf(value()) }
+    val target by rememberUpdatedState(value)
+    val moving by rememberUpdatedState(wavy)
+    LaunchedEffect(Unit) {
+        var last = withFrameNanos { it }
+        while (true) {
+            val now = withFrameNanos { it }
+            val dt = (now - last) / 1e9f
+            last = now
+            val wanted = drag ?: target()
+            val gap = wanted - shownValue.floatValue
+            if (drag != null || abs(gap) < 0.0006f) {
+                shownValue.floatValue = wanted
+                if (!moving && drag == null) { // стоит на месте — не будить кадры зря
+                    delay(120)
+                    last = withFrameNanos { it }
+                }
+            } else {
+                shownValue.floatValue += gap * (1f - exp(-dt / 0.11f))
+            }
+        }
+    }
     Canvas(
         modifier.graphicsLayer().pointerInput(onSeek) {
             if (onSeek == null) return@pointerInput
@@ -158,7 +191,7 @@ fun WavyProgress(
         val cy = size.height / 2
         val x0 = cap
         val x1 = size.width - cap
-        val shown = (drag ?: value()).coerceIn(0f, 1f)
+        val shown = (drag ?: shownValue.floatValue).coerceIn(0f, 1f)
         val activeEnd = x0 + (x1 - x0) * shown
         val gap = 4.dp.toPx()
         val trackStart = min(x1, activeEnd + gap + stroke)
@@ -331,7 +364,7 @@ fun NavItem(icon: String, text: String, selected: Boolean, onClick: () -> Unit, 
     val square by animateFloatAsState(if (selected) 1f else 0.4f, tween(Motion.SpatialFast, easing = Motion.outBack(2f)), label = "square")
     val squareAlpha by animateFloatAsState(if (selected) 1f else 0f, tween(Motion.EffectsFast), label = "squareAlpha")
     Row(
-        modifier.height(48.dp).clip(CircleShape).background(container).clickable(onClick = onClick).padding(start = 10.dp, end = 16.dp),
+        modifier.height(48.dp).clip(CircleShape).background(container).clickable(onClick = onClick).padding(start = 8.dp, end = 14.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -529,4 +562,89 @@ fun SearchField(
             unfocusedIndicatorColor = Color.Transparent,
         ),
     )
+}
+
+/** Круглая кнопка нижней панели: поиск слева, аккаунт справа. */
+@Composable
+fun NavCircle(selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val container by animateColorAsState(if (selected) colors.secondaryContainer else colors.surfaceContainerHigh, tween(Motion.EffectsDefault), label = "circle")
+    val scale by animateFloatAsState(if (selected) 1f else 0.92f, tween(Motion.SpatialFast, easing = Motion.outBack(2f)), label = "circleScale")
+    // у выбранного — ещё и кольцо: аватар закрывает почти всю подложку
+    val ring by animateColorAsState(if (selected) colors.primary else colors.primary.copy(alpha = 0f), tween(Motion.EffectsDefault), label = "ring")
+    Box(
+        modifier.size(48.dp).graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }.clip(CircleShape).background(container).border(2.dp, ring, CircleShape).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { content() }
+}
+
+/**
+ * Выбор одного из вариантов одной сплошной кнопкой: все варианты лежат на общей подложке, а подсветка
+ * перетекает от прежнего к новому — передний край уходит первым, задний догоняет, так что пятно
+ * по дороге вытягивается. Варианты переносятся на новые строки, подсветка перетекает и между строками.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun FlowChoice(options: List<Pair<String, String>>, selected: String, onSelect: (String) -> Unit, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val bounds = remember { androidx.compose.runtime.mutableStateMapOf<String, androidx.compose.ui.geometry.Rect>() }
+    val left = remember { Animatable(0f) }
+    val top = remember { Animatable(0f) }
+    val right = remember { Animatable(0f) }
+    val bottom = remember { Animatable(0f) }
+    var placed by remember { mutableStateOf(false) }
+    val goal = bounds[selected]
+    LaunchedEffect(goal) {
+        goal ?: return@LaunchedEffect
+        if (!placed) {
+            left.snapTo(goal.left)
+            top.snapTo(goal.top)
+            right.snapTo(goal.right)
+            bottom.snapTo(goal.bottom)
+            placed = true
+            return@LaunchedEffect
+        }
+        val lead = androidx.compose.animation.core.spring<Float>(dampingRatio = 0.78f, stiffness = 520f)
+        val trail = androidx.compose.animation.core.spring<Float>(dampingRatio = 0.86f, stiffness = 150f)
+        val toRight = goal.center.x >= (left.value + right.value) / 2
+        val down = goal.center.y >= (top.value + bottom.value) / 2
+        kotlinx.coroutines.coroutineScope {
+            launch { left.animateTo(goal.left, if (toRight) trail else lead) }
+            launch { right.animateTo(goal.right, if (toRight) lead else trail) }
+            launch { top.animateTo(goal.top, if (down) trail else lead) }
+            launch { bottom.animateTo(goal.bottom, if (down) lead else trail) }
+        }
+    }
+    androidx.compose.foundation.layout.FlowRow(
+        modifier
+            .background(colors.surfaceContainerHighest, RoundedCornerShape(24.dp))
+            .padding(4.dp)
+            .drawBehind {
+                if (!placed) return@drawBehind
+                val size = Size(right.value - left.value, bottom.value - top.value)
+                drawRoundRect(
+                    colors.secondaryContainer, Offset(left.value, top.value), size,
+                    androidx.compose.ui.geometry.CornerRadius(minOf(size.height / 2, 20.dp.toPx())),
+                )
+            },
+    ) {
+        for ((value, title) in options) {
+            val chosen = value == selected
+            val tint by animateColorAsState(if (chosen) colors.onSecondaryContainer else colors.onSurfaceVariant, tween(Motion.EffectsDefault), label = "choice")
+            Box(
+                Modifier
+                    .onGloballyPositioned { bounds[value] = it.boundsInParent() }
+                    .height(40.dp)
+                    .clip(CircleShape)
+                    .clickable(remember { MutableInteractionSource() }, indication = null) { onSelect(value) }
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Medium, color = tint, maxLines = 1)
+            }
+        }
+    }
 }
