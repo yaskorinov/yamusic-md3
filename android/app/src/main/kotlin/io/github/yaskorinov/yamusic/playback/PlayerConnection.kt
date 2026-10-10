@@ -115,6 +115,15 @@ class PlayerConnection(private val context: Context) {
     /** К предыдущему треку, где бы ни стояла позиция текущего. */
     fun previousItem() = controller?.seekToPreviousMediaItem()
 
+    /**
+     * Сосед текущего трека по порядку воспроизведения — прямо из плеера. В [state] смена трека приходит
+     * на кадр-другой позже, а плеер знает о ней сразу после [next] и [previousItem].
+     */
+    fun neighbour(forward: Boolean): Track? {
+        val player = controller ?: return null
+        return queue.value.getOrNull(if (forward) player.nextMediaItemIndex else player.previousMediaItemIndex)
+    }
+
     fun seekTo(positionMs: Long) = controller?.seekTo(positionMs)
 
     fun toggleShuffle() {

@@ -2,6 +2,7 @@ package io.github.yaskorinov.yamusic.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.EaseInCubic
 import androidx.compose.animation.core.EaseInQuad
 import androidx.compose.animation.core.EaseOutCubic
@@ -52,6 +53,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -93,6 +95,7 @@ import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -124,9 +127,9 @@ fun MiniPlayer(state: PlayerState, app: App, onOpen: (Offset) -> Unit, modifier:
     val next = queue.getOrNull(state.nextIndex)
     val previous = queue.getOrNull(state.previousIndex)
     val scope = rememberCoroutineScope()
-    val offset = remember { Animatable(0f) }
+    var offset by remember { mutableFloatStateOf(0f) }
     // Куда тянут: -1 — к следующему (пилюля едет влево), 1 — к предыдущему
-    val pull by remember { derivedStateOf { if (offset.value < 0f) -1 else if (offset.value > 0f) 1 else 0 } }
+    val pull by remember { derivedStateOf { if (offset < 0f) -1 else if (offset > 0f) 1 else 0 } }
     // Трек, на который только что перелистнули: плеер сообщит о смене чуть позже, а пилюля уже на месте
     var held by remember { mutableStateOf<Track?>(null) }
     LaunchedEffect(held, track.id) {
@@ -136,29 +139,60 @@ fun MiniPlayer(state: PlayerState, app: App, onOpen: (Offset) -> Unit, modifier:
     }
     val shown = held?.takeIf { it.id != track.id } ?: track
     var width by remember { mutableIntStateOf(0) }
-    val gap = with(LocalDensity.current) { 12.dp.toPx() }
+    val density = LocalDensity.current
+    val gap = with(density) { 12.dp.toPx() }
+    val flick = with(density) { 200.dp.toPx() } // бросок: хватает короткого быстрого движения
     var cover by remember { mutableStateOf(Offset.Zero) }
+    // Доводка после отпускания и перелистывание, которое она завершит: трек и направление
+    var settle by remember { mutableStateOf<Job?>(null) }
+    var turning by remember { mutableStateOf<Pair<Track, Boolean>?>(null) }
+    // Сам жест: идёт ли он и сколько пилюля прошла под пальцем
+    var dragging by remember { mutableStateOf(false) }
+    var travel by remember { mutableFloatStateOf(0f) }
+    // Соседняя пилюля становится текущей: подменяем их в одном кадре и только тогда переключаем трек.
+    // [at] — где она в этот миг стоит (0 — доехала до места)
+    fun turn(at: Float) {
+        val (to, forward) = turning ?: return
+        turning = null
+        held = to
+        offset = at
+        if (forward) player.next() else player.previousItem()
+    }
     Box(
         modifier.fillMaxWidth().height(72.dp).onSizeChanged { width = it.width }.draggable(
             state = rememberDraggableState { delta ->
-                val wanted = offset.value + delta
+                if (!dragging) {
+                    // новое касание не ждёт конца доводки: перелистывание завершается сразу, а пилюля остаётся под пальцем.
+                    // Делается здесь, а не в onDragStarted: тот срабатывает на кадр позже, и начало движения терялось бы
+                    dragging = true
+                    travel = 0f
+                    settle?.cancel()
+                    settle = null
+                    turning?.let { (_, forward) -> turn(offset + if (forward) width + gap else -(width + gap)) }
+                }
                 // тянуть некуда — пилюля поддаётся, но туго
-                val stuck = (wanted < 0f && next == null) || (wanted > 0f && previous == null)
-                scope.launch { offset.snapTo(if (stuck) offset.value + delta * 0.2f else wanted) }
+                val stuck = (offset + delta < 0f && next == null) || (offset + delta > 0f && previous == null)
+                offset += if (stuck) delta * 0.2f else delta
+                travel += delta
             },
             orientation = Orientation.Horizontal,
-            enabled = held == null,
             onDragStopped = { velocity ->
+                dragging = false
                 val step = width + gap
-                val forward = offset.value < 0f
-                val far = abs(offset.value) > step * 0.3f || (if (forward) velocity < -900f else velocity > 900f)
-                val to = if (far) (if (forward) next else previous) else null
-                offset.animateTo(if (to == null) 0f else if (forward) -step else step, spring(dampingRatio = 0.9f, stiffness = 420f), velocity)
-                if (to != null) {
-                    // соседняя пилюля встала на место текущей — подменяем их в одном кадре и только тогда переключаем трек
-                    held = to
-                    offset.snapTo(0f)
-                    if (forward) player.next() else player.previousItem()
+                // судим по самому жесту, а не по месту пилюли: её могли подхватить посреди доводки
+                val moved = travel
+                val forward = moved < 0f
+                val along = if (forward) -velocity else velocity // скорость в сторону перелистывания
+                val far = along > -flick && (abs(moved) > step * 0.2f || along > flick)
+                // сосед — из самого плеера: после только что завершённого перелистывания состояние ещё старое
+                val to = if (far) player.neighbour(forward) else null
+                turning = to?.let { it to forward }
+                settle = scope.launch {
+                    animate(offset, if (to == null) 0f else if (forward) -step else step, velocity, spring(dampingRatio = 0.9f, stiffness = 420f)) { value, _ ->
+                        offset = value
+                    }
+                    turn(0f)
+                    settle = null
                 }
             },
         ),
@@ -169,7 +203,7 @@ fun MiniPlayer(state: PlayerState, app: App, onOpen: (Offset) -> Unit, modifier:
             app = app,
             current = true,
             onOpen = { onOpen(cover) },
-            modifier = Modifier.graphicsLayer { translationX = offset.value },
+            modifier = Modifier.graphicsLayer { translationX = offset },
             coverModifier = Modifier.onGloballyPositioned {
                 cover = it.boundsInRoot().center
                 theme.miniCover = it
@@ -183,7 +217,7 @@ fun MiniPlayer(state: PlayerState, app: App, onOpen: (Offset) -> Unit, modifier:
                 app = app,
                 current = false,
                 onOpen = null,
-                modifier = Modifier.graphicsLayer { translationX = offset.value - pull * (width + gap) },
+                modifier = Modifier.graphicsLayer { translationX = offset - pull * (width + gap) },
             )
         }
     }
