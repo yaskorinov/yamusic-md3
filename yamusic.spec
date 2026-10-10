@@ -7,7 +7,7 @@ from pathlib import Path
 src = Path("src/yamusic")
 
 a = Analysis(
-    ["src/yamusic/__main__.py"],
+    ["src/yamusic_entry.py"],
     pathex=[str(Path("src"))],
     binaries=[
         # libmpv ищет python-mpv; кладём рядом с exe
