@@ -220,6 +220,8 @@ pub fn run(cli: Cli) -> i32 {
         return 0;
     }
 
+    // на Windows иконка окна и панели задач — ресурс IDI_ICON1 из exe (build.rs)
+    #[cfg(not(windows))]
     ffi::app_set_window_icon(&qpath(&assets_dir().join("yamusic.svg")));
     // До создания окон: Qt Quick берёт период кадра у основного экрана (см. display.rs)
     let screen_note = crate::display::prefer_fastest_screen();

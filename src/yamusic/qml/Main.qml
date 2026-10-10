@@ -59,10 +59,15 @@ Window {
             onActivated: reason => {
                 if (reason === Platform.SystemTrayIcon.MiddleClick)
                     Player.togglePlay()
-                else if (reason !== Platform.SystemTrayIcon.Context)
+                else if (reason === Platform.SystemTrayIcon.Context) {
+                    // на Windows меню трея — виджетное, к значку Qt его не привязывает: открываем сами у курсора
+                    if (Qt.platform.os === "windows")
+                        trayMenu.open()
+                } else
                     win.visible ? win.hide() : win.showWindow()
             }
             menu: Platform.Menu {
+                id: trayMenu
                 Platform.MenuItem {
                     text: win.visible ? "Скрыть окно" : "Показать окно"
                     onTriggered: win.visible ? win.hide() : win.showWindow()

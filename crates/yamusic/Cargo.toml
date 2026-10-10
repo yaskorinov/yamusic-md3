@@ -35,3 +35,4 @@ clap.workspace = true
 
 [build-dependencies]
 cxx-qt-build.workspace = true
+embed-resource = "3"

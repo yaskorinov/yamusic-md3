@@ -52,6 +52,13 @@ fn main() {
 
     match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
         Ok("windows") => {
+            // IDI_ICON1 — иконка exe (ярлыки, панель задач); Qt берёт её же для окон без своей иконки
+            let ico = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../yamusic.ico").canonicalize().expect("yamusic.ico");
+            println!("cargo::rerun-if-changed={}", ico.display());
+            let rc = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("yamusic.rc");
+            let ico = ico.to_string_lossy().trim_start_matches(r"\\?\").replace('\\', "\\\\");
+            std::fs::write(&rc, format!("IDI_ICON1 ICON \"{ico}\"\n")).unwrap();
+            embed_resource::compile(&rc, embed_resource::NONE).manifest_required().unwrap();
             println!("cargo::rustc-link-lib=user32");
             println!("cargo::rustc-link-lib=dwmapi");
             println!("cargo::rustc-link-lib=shell32");
