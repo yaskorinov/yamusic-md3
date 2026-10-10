@@ -14,6 +14,9 @@ Item {
     // false — состояние задаётся только снаружи (checked: binding), клик лишь шлёт clicked()
     property bool autoToggle: true
     property color iconColor: _contentColor
+    // Мелким глифам (три точки more_horiz) стандартного кегля и веса мало: в кнопке они теряются
+    property real iconSize: _spec.icon
+    property real iconWeight: 400
     readonly property alias pressed: area.pressed
     readonly property alias hovered: area.containsMouse
 
@@ -73,7 +76,8 @@ Item {
     Icon {
         anchors.centerIn: parent
         name: root.icon
-        size: root._spec.icon
+        size: root.iconSize
+        weight: root.iconWeight
         fill: root._selected ? 1 : 0
         color: root.iconColor
     }

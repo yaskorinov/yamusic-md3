@@ -21,9 +21,11 @@ Window {
     flags: Qt.Window | Qt.FramelessWindowHint
     color: Theme.surface
 
-    readonly property bool compactSidebar: Settings.sidebarCollapsed || width < 980
     readonly property bool panelFits: width >= 1100
     readonly property bool panelShown: Settings.rightPanelOpen && panelFits
+    // Открытая правая панель забирает 340 px: в окне уже 1400 боковая панель сворачивается в рейку,
+    // иначе контенту остаётся меньше, чем в самом узком окне, и мини-плеер с «орбитой» в него не влезают
+    readonly property bool compactSidebar: Settings.sidebarCollapsed || width < 980 || (panelShown && width < 1400)
 
     // Закрытие окна прячет его в трей (если это включено и трей в системе есть) — музыка играет дальше.
     // Выход — из меню значка или Ctrl+Q.

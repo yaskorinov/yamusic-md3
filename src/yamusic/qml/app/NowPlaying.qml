@@ -342,6 +342,8 @@ Item {
                     IconButton {
                         id: bigMore
                         icon: "more_horiz"
+                        iconSize: 30
+                        iconWeight: 700
                         enabled: Player.hasTrack
                         onClicked: {
                             const p = bigMore.mapToItem(null, 0, bigMore.height)

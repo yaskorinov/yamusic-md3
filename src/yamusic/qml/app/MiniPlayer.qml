@@ -12,6 +12,12 @@ Item {
 
     implicitHeight: 72
 
+    // В узкой пилюле место нужнее треку: по мере сужения уходят «⋯» (меню остаётся по ПКМ на треке),
+    // громкость (она есть в полноэкранном плеере) и перемешивание с повтором
+    readonly property bool roomForMenu: width >= 880
+    readonly property bool roomForVolume: width >= 760
+    readonly property bool roomForModes: width >= 640
+
     // Позиция приходит из Python ~5 раз в секунду; между обновлениями — плавно.
     property real progress: Player.position
     Behavior on progress {
@@ -40,6 +46,7 @@ Item {
 
         // Управление
         IconButton {
+            visible: root.roomForModes
             icon: "shuffle"
             checkable: true
             autoToggle: false
@@ -68,6 +75,7 @@ Item {
         }
         IconButton { icon: "skip_next"; iconColor: Theme.fgSurface; enabled: Player.hasTrack; onClicked: Player.next() }
         IconButton {
+            visible: root.roomForModes
             icon: Player.repeat === "one" ? "repeat_one" : "repeat"
             checkable: true
             autoToggle: false
@@ -183,9 +191,11 @@ Item {
         LikeButton { track: Player.track }
         IconButton {
             id: miniMore
-            // в узкой пилюле место нужнее треку; меню остаётся по ПКМ на треке
-            visible: root.width >= 760
+            visible: root.roomForMenu
             icon: "more_horiz"
+            iconSize: 30
+            iconWeight: 700
+            iconColor: enabled ? Theme.fgSurface : Qt.alpha(Theme.fgSurface, Theme.stateLayer.disabledContent)
             enabled: Player.hasTrack
             onClicked: {
                 const p = miniMore.mapToItem(null, 0, miniMore.height)
@@ -209,8 +219,9 @@ Item {
             checked: Settings.rightPanelOpen && Settings.rightPanelTab === "queue"
             onClicked: root._togglePanel("queue")
         }
-        Icon { Layout.leftMargin: 8; name: Player.volume > 0.5 ? "volume_up" : Player.volume > 0 ? "volume_down" : "volume_off"; size: 20 }
+        Icon { visible: root.roomForVolume; Layout.leftMargin: 8; name: Player.volume > 0.5 ? "volume_up" : Player.volume > 0 ? "volume_down" : "volume_off"; size: 20 }
         Slider {
+            visible: root.roomForVolume
             Layout.preferredWidth: 96
             trackHeight: 10
             handleHeight: 28

@@ -180,6 +180,8 @@ Item {
                 anchors.fill: parent
                 icon: "more_horiz"
                 size: "xs"
+                iconSize: 26
+                iconWeight: 700
                 opacity: rowHover.hovered || pressed ? 1 : 0
                 visible: opacity > 0
                 onClicked: root.openMenu(moreButton, 0, moreButton.height)

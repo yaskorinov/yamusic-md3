@@ -278,6 +278,9 @@ Item {
         x: page.cx - width / 2
         y: page.flat.length > 0 ? page.cy + page.ry - height / 2 : page.cy + page.heroSize / 2 + 24
         width: page.flat.length > 0 ? Math.max(200, Math.min(page.slots.gap, 440)) : Math.min(page.width - 64, 440)
+        // в узком окне свободная дуга короче подписи — та наезжала бы на кружки; остаётся только ошибка
+        readonly property bool fits: page.flat.length === 0 || page.slots.gap >= 200 || Wave.errorText !== ""
+        visible: fits
         opacity: page.flat.length > 0 ? Math.min(1, page.intro * 2) : 1
         spacing: 12
         Label {
