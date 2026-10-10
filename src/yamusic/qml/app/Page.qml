@@ -15,8 +15,12 @@ Item {
     property real sideMargin: 32
     property real bottomInset: 120
     default property alias content: column.data
+    // Слой под содержимым, вне прокручиваемой области — её clip его не режет (фон шапки, см. HeroShapes)
+    property alias underlay: underlayHost.data
     readonly property alias flickable: flick
     readonly property bool scrolled: flick.contentY > 48
+
+    Item { id: underlayHost; anchors.fill: parent }
 
     SmoothFlickable {
         id: flick

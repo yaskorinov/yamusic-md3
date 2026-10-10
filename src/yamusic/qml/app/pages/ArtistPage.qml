@@ -24,18 +24,22 @@ Page {
         return String(n)
     }
 
+    underlay: HeroShapes {
+        width: page.width
+        active: page.visible
+        headerHeight: hero.height + 24
+        scroll: page.flickable.contentY
+        contentX: page.sideMargin - 16
+        contentWidth: page.width - 2 * contentX
+        seed: page.info.name ?? ""
+        shapesOpacity: 0.6
+    }
+
     // ---- Шапка ----
     Item {
+        id: hero
         Layout.fillWidth: true
         Layout.preferredHeight: heroRow.implicitHeight + 32
-
-        FloatingShapes {
-            anchors.fill: parent
-            anchors.margins: -16
-            seed: page.info.name ?? ""
-            opacity: 0.6
-            running: page.visible && !page.scrolled
-        }
 
         RowLayout {
             id: heroRow

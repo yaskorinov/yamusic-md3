@@ -34,33 +34,14 @@ Item {
     // Медленно плывущие фигуры за шапкой. Слой вне ListView (иначе его clip режет фигуры по краю
     // списка) и заходит под прозрачную верхнюю панель; сверху и снизу фигуры растворяются,
     // поэтому видимой рамки нет. Едет вместе с шапкой, стоит, когда она уехала из виду.
-    Item {
-        id: shapesLayer
-        readonly property real above: 64           // высота верхней панели над страницей
-        readonly property real below: 140          // запас под шапкой на растворение
-        readonly property real headerH: list.headerItem ? list.headerItem.height : 320
-        readonly property real scroll: list.contentY - list.originY
-        visible: page.showHeader && scroll < headerH + below
-        y: -above - scroll
+    HeroShapes {
         width: page.width
-        height: above + headerH + below
-
-        layer.enabled: visible
-        layer.effect: ShaderEffect {
-            property real fadeTop: shapesLayer.above * 1.6 / Math.max(1, shapesLayer.height)
-            property real fadeBottom: shapesLayer.below * 1.4 / Math.max(1, shapesLayer.height)
-            fragmentShader: Qt.resolvedUrl("shaders/edgefade.frag.qsb")
-        }
-
-        FloatingShapes {
-            x: list.x
-            y: shapesLayer.above
-            width: list.width
-            height: shapesLayer.headerH
-            seed: page.title
-            opacity: 0.75
-            running: page.visible && shapesLayer.visible
-        }
+        active: page.showHeader && page.visible
+        headerHeight: list.headerItem ? list.headerItem.height : 320
+        scroll: list.contentY - list.originY
+        contentX: list.x
+        contentWidth: list.width
+        seed: page.title
     }
 
     ListView {
