@@ -1,15 +1,16 @@
 [project]
 name = "yamusic"
 version = "0.1.0"
-description = "Кастомный клиент Яндекс Музыки для Linux в стиле Material 3 Expressive"
+description = "Кастомный клиент Яндекс Музыки в стиле Material 3 Expressive"
 requires-python = ">=3.14"
 dependencies = [
-    "dbus-fast>=5.2.0",
     "materialyoucolor>=3.0.4",
     "pyside6-essentials>=6.12",
     "python-mpv>=1.0.8",
-    "secretstorage>=3.5.0",
     "yandex-music[async,crypto,orjson]>=3.2.1",
+    "dbus-fast>=5.2.0; sys_platform == 'linux'",
+    "secretstorage>=3.5.0; sys_platform == 'linux'",
+    "keyring>=25.0.0; sys_platform == 'win32'",
 ]
 
 [project.scripts]

@@ -10,7 +10,6 @@ import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, QTimer, QUrl
-from PySide6.QtDBus import QDBusConnection, QDBusInterface, QDBusMessage
 from PySide6.QtGui import QFontDatabase, QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterSingletonInstance
 from PySide6.QtQuick import QQuickWindow
@@ -28,11 +27,16 @@ from .mpris import BUS_NAME, OBJECT_PATH, Mpris
 from .player import Player
 from .wave import Wave
 
+if sys.platform == "linux":
+    from PySide6.QtDBus import QDBusConnection, QDBusInterface, QDBusMessage
+
 PACKAGE_DIR = Path(__file__).resolve().parent
 
 
 def raise_running_instance() -> bool:
     """Работающий плеер виден по имени MPRIS на шине: просим его показать окно. True — он нашёлся."""
+    if sys.platform != "linux":
+        return False
     bus = QDBusConnection.sessionBus()
     if not bus.isConnected() or not bus.interface().isServiceRegistered(BUS_NAME).value():
         return False
@@ -92,10 +96,12 @@ def main(argv: list[str] | None = None) -> int:
         os.environ["QT_LOGGING_RULES"] = os.environ.get("QT_LOGGING_RULES", "") + ";qml.debug=true"
     if args.screenshot:
         # Снимок без окна на экране (перекрывает QT_QPA_PLATFORM=wayland из окружения);
-        # OpenGL-RHI нужен для Shape/MultiEffect — software-бэкенд их не рисует.
+        # RHI нужен для Shape/MultiEffect — software-бэкенд их не рисует.
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
         os.environ["QT_QUICK_BACKEND"] = "rhi"
-        os.environ.setdefault("QSG_RHI_BACKEND", "opengl")
+        # Windows: D3D11 работает в offscreen; OpenGL может дать белый экран
+        default_backend = "d3d11" if sys.platform == "win32" else "opengl"
+        os.environ.setdefault("QSG_RHI_BACKEND", default_backend)
 
     config_dir = args.config_dir or (tempfile.mkdtemp(prefix="yamusic-shot-") if args.screenshot else None)
     if config_dir:

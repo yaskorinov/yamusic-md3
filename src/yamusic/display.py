@@ -15,10 +15,9 @@ from __future__ import annotations
 
 import ctypes
 import os
+import sys
 from pathlib import Path
 
-import shiboken6
-from PySide6 import QtGui
 from PySide6.QtGui import QGuiApplication
 
 _HANDLE = "_ZNK7QScreen6handleEv"
@@ -27,6 +26,8 @@ _SET_PRIMARY = "_ZN22QWindowSystemInterface26handlePrimaryScreenChangedEP15QPlat
 
 def prefer_fastest_screen(app: QGuiApplication) -> str:
     """Сделать основным экраном Qt монитор с максимальной частотой. Возвращает строку для лога."""
+    if sys.platform != "linux":
+        return "primary screen: переключение частоты не поддерживается на этой ОС"
     if os.environ.get("YAMUSIC_KEEP_PRIMARY_SCREEN"):
         return "primary screen: оставлен системный (YAMUSIC_KEEP_PRIMARY_SCREEN)"
     screens = app.screens()
@@ -37,6 +38,8 @@ def prefer_fastest_screen(app: QGuiApplication) -> str:
     if fastest is primary or fastest.refreshRate() <= primary.refreshRate() + 0.5:
         return f"primary screen: {primary.name()} уже самый быстрый"
 
+    import shiboken6
+    from PySide6 import QtGui
     lib_path = Path(QtGui.__file__).parent / "Qt" / "lib" / "libQt6Gui.so.6"
     try:
         lib = ctypes.CDLL(str(lib_path))
