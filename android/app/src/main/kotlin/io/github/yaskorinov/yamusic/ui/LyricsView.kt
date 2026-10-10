@@ -1,7 +1,6 @@
 package io.github.yaskorinov.yamusic.ui
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.EaseOutCubic
 import androidx.compose.animation.core.animateFloatAsState
@@ -34,9 +33,11 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,9 +74,7 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.sin
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collectLatest
 
 /**
@@ -141,7 +140,8 @@ private fun SyncedLyrics(lyrics: Lyrics, player: PlayerConnection, playing: Bool
 
     // Прокрутка: список сразу встаёт в цель, а каждая строка получает компенсирующий сдвиг,
     // который уходит в ноль со своей задержкой
-    val shifts = remember { MutableSharedFlow<Float>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST) }
+    val cascade = remember { Cascade() }
+    LaunchedEffect(cascade) { cascade.run() }
     val dragged by listState.interactionSource.collectIsDraggedAsState()
     var holdUntil by remember { mutableLongStateOf(0L) }
     LaunchedEffect(dragged) { if (dragged) holdUntil = Long.MAX_VALUE else if (holdUntil != 0L) holdUntil = System.currentTimeMillis() + HOLD_MS }
@@ -153,7 +153,7 @@ private fun SyncedLyrics(lyrics: Lyrics, player: PlayerConnection, playing: Bool
         val before = top()
         listState.scrollToItem(active, scrollOffset = -(listState.layoutInfo.viewportSize.height * ANCHOR).toInt())
         val after = top()
-        if (before != null && after != null && before != after) shifts.tryEmit((before - after).toFloat())
+        if (before != null && after != null && before != after) cascade.push((before - after).toFloat(), active)
     }
 
     LazyColumn(
@@ -173,16 +173,7 @@ private fun SyncedLyrics(lyrics: Lyrics, player: PlayerConnection, playing: Bool
     ) {
         itemsIndexed(lines) { index, line ->
             // каскад: строки ниже активной трогаются позже
-            val shift = remember { Animatable(0f) }
-            LaunchedEffect(Unit) {
-                shifts.collectLatest { dy ->
-                    val moving = shift.value != 0f
-                    shift.snapTo(shift.value + dy)
-                    if (!moving) delay((index - active + 1).coerceIn(0, 7) * STAGGER_MS)
-                    shift.animateTo(0f, tween(SCROLL_MS, easing = if (moving) EaseOutCubic else EaseInOut))
-                }
-            }
-            val moved = Modifier.graphicsLayer { translationY = shift.value }
+            val moved = Modifier.graphicsLayer { translationY = cascade.shift(index) }
             // строка заливается, пока активна, и доливается, даже если следующая уже началась
             val filling by remember(line, index) { derivedStateOf { index == active || (index == active - 1 && position < line.end) } }
             if (line.gap) {
@@ -238,26 +229,44 @@ private fun Line(line: LyricLine, distance: Int, filling: Boolean, position: () 
                 // Звучащее слово и его готовность → где фронт заливки
                 val now = position()
                 val feather = FEATHER.toPx()
-                var start = 0
+                var offset = 0
                 var front = Float.NaN
                 var row = 0
-                var done = Float.NaN // где фронт остановился на предыдущем слове этой же строки
+                var done = Float.NaN // где фронт остановился на предыдущем слове
+                var doneRow = -1     // и в какой строке набора
                 for (word in line.words) {
                     if (word.start > now) break
-                    val end = start + word.text.trimEnd().length
-                    val left = measured.getHorizontalPosition(start, true)
-                    val right = measured.getHorizontalPosition(end, true)
+                    val first = offset
+                    val last = offset + word.text.trimEnd().length
+                    offset += word.text.length
+                    if (last <= first) continue
                     val part = ((now - word.start) / (word.end - word.start).coerceAtLeast(0.05f)).coerceIn(0f, 1f)
-                    val wordRow = measured.getLineForOffset(start)
-                    if (wordRow != row) done = Float.NaN
-                    row = wordRow
-                    // Фронт мягкий, поэтому проходит слово с запасом на полуширину размытия: в конце слово
+                    // Длинное слово («белым-белым-белым») может переноситься: фронт проходит его отрезок
+                    // в каждой строке набора по очереди, время делится по ширине отрезков
+                    val firstRow = measured.getLineForOffset(first)
+                    val lastRow = measured.getLineForOffset(last - 1)
+                    // Фронт мягкий, поэтому проходит отрезок с запасом на полуширину размытия: в конце слово
                     // залито целиком. Начинает он не левее места, где закончил предыдущее слово, — назад не идёт.
-                    val from = if (done.isNaN()) left - feather else max(left - feather, done)
-                    val to = (if (right >= left) right else size.width) + feather
-                    front = from + (to - from) * part
-                    done = to
-                    start += word.text.length
+                    fun from(r: Int): Float {
+                        val left = (if (r == firstRow) measured.getHorizontalPosition(first, true) else measured.getLineLeft(r)) - feather
+                        return if (r == doneRow && !done.isNaN()) max(left, done) else left
+                    }
+                    fun to(r: Int): Float {
+                        val right = if (r == lastRow) measured.getHorizontalPosition(last, true) else measured.getLineRight(r)
+                        return max(right + feather, from(r))
+                    }
+                    var total = 0f
+                    for (r in firstRow..lastRow) total += to(r) - from(r)
+                    var left = total * part
+                    for (r in firstRow..lastRow) {
+                        val length = to(r) - from(r)
+                        row = r
+                        front = from(r) + minOf(left, length)
+                        if (left <= length) break
+                        left -= length
+                    }
+                    done = to(lastRow)
+                    doneRow = lastRow
                 }
                 if (front.isNaN()) return@drawWithContent
                 val top = measured.getLineTop(row)
@@ -312,6 +321,44 @@ private fun Gap(line: LyricLine, isActive: Boolean, position: () -> Float, modif
                     Modifier.size(16.dp).graphicsLayer { alpha = DIM + (1f - DIM) * (progress() * 3 - index).coerceIn(0f, 1f) },
                     rotation = { position() * (if (index % 2 == 1) -40f else 50f) + index * 30f },
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Каскадная прокрутка. Каждый сдвиг списка запоминается с моментом и номером активной строки, а строка
+ * считает своё смещение из этих записей. Строка, которая появилась в списке уже после сдвига (въехала
+ * снизу), получает то же смещение, что и соседи: раньше она вставала сразу на место, и соседняя строка,
+ * ещё не доехавшая, рисовалась поверх неё.
+ */
+private class Cascade {
+    private class Move(val at: Long, val dy: Float, val active: Int)
+
+    private val moves = mutableStateListOf<Move>()
+    private var now by mutableLongStateOf(System.nanoTime())
+
+    fun push(dy: Float, active: Int) {
+        moves += Move(System.nanoTime(), dy, active)
+    }
+
+    /** Смещение строки [index] в этот кадр: сумма ещё не отыгранных сдвигов. */
+    fun shift(index: Int): Float {
+        var sum = 0f
+        for (move in moves) {
+            val delay = (index - move.active + 1).coerceIn(0, 7) * STAGGER_MS
+            val t = ((now - move.at) / 1e6f - delay) / SCROLL_MS
+            sum += move.dy * (1f - EaseInOut.transform(t.coerceIn(0f, 1f)))
+        }
+        return sum
+    }
+
+    /** Ведёт время, пока есть неотыгранные сдвиги. */
+    suspend fun run() {
+        snapshotFlow { moves.isNotEmpty() }.collectLatest { busy ->
+            while (busy && moves.isNotEmpty()) {
+                now = withFrameNanos { it }
+                moves.removeAll { (now - it.at) / 1e6f > SCROLL_MS + 7 * STAGGER_MS }
             }
         }
     }

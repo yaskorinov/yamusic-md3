@@ -100,7 +100,7 @@ class LyricsStore(
 
     private companion object {
         const val TAG = "YaMusic"
-        const val CACHE_VERSION = 1
+        const val CACHE_VERSION = 2 // 2: слова делятся и по дефису
         const val NOT_FOUND_TTL_MS = 6 * 3600_000L
         const val DEBOUNCE_MS = 350L
     }

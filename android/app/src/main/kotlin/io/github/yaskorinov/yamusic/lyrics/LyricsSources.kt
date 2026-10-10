@@ -328,7 +328,7 @@ class LyricsSources(
 
 // ── разбор и сопоставление ─────────────────────────────────────────────────────
 
-private class Syllable(val text: String, val start: Float, val end: Float)
+internal class Syllable(val text: String, val start: Float, val end: Float)
 
 private const val GAP_MIN = 4.5f // секунд тишины, после которых показывается пауза «• • •»
 
@@ -388,8 +388,11 @@ internal fun isPlaceholder(texts: List<String>): Boolean {
     return lines.size <= 2 && lines.all { line -> line.all { !it.isLetter() || it in '\u4e00'..'\u9fff' || it in '\u3400'..'\u4dbf' } }
 }
 
-/** Слоги → слова: слово кончается там, где слог кончается пробелом, и на каждом иероглифе. */
-private fun groupSyllables(syllables: List<Syllable>): List<LyricWord> {
+/**
+ * Слоги → слова: слово кончается там, где слог кончается пробелом или дефисом, и на каждом иероглифе.
+ * По дефису — чтобы у «белым-белым-белым» каждая часть заливалась в своё время, а не всё слово равномерно.
+ */
+internal fun groupSyllables(syllables: List<Syllable>): List<LyricWord> {
     val words = ArrayList<LyricWord>()
     val current = ArrayList<Syllable>()
     fun flush() {
@@ -400,7 +403,8 @@ private fun groupSyllables(syllables: List<Syllable>): List<LyricWord> {
     for (syllable in syllables) {
         if (syllable.text.isEmpty()) continue
         current += syllable
-        if (syllable.text.last().isWhitespace() || CJK_END.containsMatchIn(syllable.text)) flush()
+        val last = syllable.text.last()
+        if (last.isWhitespace() || last == '-' || last == '‐' || last == '–' || last == '—' || CJK_END.containsMatchIn(syllable.text)) flush()
     }
     flush()
     return words

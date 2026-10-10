@@ -28,6 +28,17 @@ class LyricsSourcesTest {
     }
 
     @Test
+    fun hyphenatedRepeatsKeepTheirOwnTiming() {
+        // «белым-белым мелом»: части через дефис — отдельные слова со своим временем, текст склеивается без пробелов
+        val words = groupSyllables(
+            listOf(Syllable("бе", 0f, 0.2f), Syllable("лым-", 0.2f, 0.5f), Syllable("бе", 0.5f, 0.7f), Syllable("лым ", 0.7f, 1f), Syllable("мелом", 1f, 1.5f)),
+        )
+        assertEquals(listOf("белым-", "белым ", "мелом"), words.map { it.text })
+        assertEquals(listOf(0f, 0.5f, 1f), words.map { it.start })
+        assertEquals(listOf(0.5f, 1f, 1.5f), words.map { it.end })
+    }
+
+    @Test
     fun creditsAreNotLyrics() {
         val lines = buildFromTimedLines(listOf(0f to "作词 : 某人", 1f to "Lyrics: someone", 5f to "настоящая строка"), duration = 10f)
         assertEquals(1, lines.size)
