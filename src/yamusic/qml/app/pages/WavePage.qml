@@ -35,7 +35,8 @@ Item {
     readonly property real zig: Math.max(0.06, Math.sqrt(Math.max(0, Math.pow(bubble + 6, 2) - spacing * spacing))
                                                / (2 * Math.min(rx, ry)))
     // между центром и внутренним кольцом должна помещаться прилипшая фигура
-    readonly property real heroSize: Math.max(140, Math.min(2 * (ry * (1 - zig) - bubble * 1.4 - 6), rx * 0.8, 320))
+    readonly property real heroSize: flat.length === 0 ? Math.min(ry * 1.2, 300)     // без входа настроек нет
+        : Math.max(140, Math.min(2 * (ry * (1 - zig) - bubble * 1.4 - 6), rx * 0.8, 320))
 
     // ---- Что летает: группы → плоский список (заголовки групп тоже стоят на орбите) ----
     readonly property var groupStyle: ({
