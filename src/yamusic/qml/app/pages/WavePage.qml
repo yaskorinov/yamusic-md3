@@ -39,12 +39,15 @@ Item {
         : Math.max(140, Math.min(2 * (ry * (1 - zig) - bubble * 1.4 - 6), rx * 0.8, 320))
 
     // ---- Что летает: группы → плоский список (заголовки групп тоже стоят на орбите) ----
+    // Тональные пары Material You: в покое — контейнер группы с её on-цветом, выбранная — основной цвет
     readonly property var groupStyle: ({
-        context:    { shape: "cookie9", color: "primary", fg: "fgPrimary" },
-        diversity:  { shape: "cookie4", color: "tertiary", fg: "fgTertiary" },
-        moodEnergy: { shape: "flower8", color: "secondary", fg: "fgSecondary" },
-        language:   { shape: "cookie6", color: "inverseSurface", fg: "fgInverseSurface" }
+        // самый яркий акцент — у маленькой группы, иначе 7 «занятий» перекрикивают центр
+        context:    { shape: "cookie9", color: "secondary", fg: "fgSecondary", box: "secondaryContainer", fgBox: "fgSecondaryContainer" },
+        diversity:  { shape: "cookie4", color: "tertiary", fg: "fgTertiary", box: "tertiaryContainer", fgBox: "fgTertiaryContainer" },
+        moodEnergy: { shape: "flower8", color: "primary", fg: "fgPrimary", box: "primaryContainer", fgBox: "fgPrimaryContainer" },
+        language:   { shape: "cookie6", color: "inverseSurface", fg: "fgInverseSurface", box: "surfaceVariant", fgBox: "fgSurfaceVariant" }
     })
+    readonly property var groupKeys: page.signedIn ? Wave.groups.map(g => g.key) : []
     readonly property var flat: {
         const out = []
         const groups = page.signedIn ? Wave.groups : []
@@ -199,7 +202,7 @@ Item {
             required property int index
 
             readonly property bool caption: modelData.caption
-            readonly property var style: page.groupStyle[modelData.key] ?? page.groupStyle.context
+            readonly property var style: page.groupStyle[modelData.key ?? page.groupKeys[modelData.group]] ?? page.groupStyle.context
             readonly property bool selected: !caption && Wave.selection[modelData.key] === modelData.seed
             readonly property point slot: page.slots.at[index] ?? Qt.point(0, 0)
             readonly property point dir: page.slots.dock[modelData.group] ?? Qt.point(0, -1)
@@ -234,15 +237,16 @@ Item {
                 text: body.modelData.label
                 type: "titleSmall"
                 weight: 600
-                color: Theme.fgSurfaceVariant
+                color: Theme[body.style.color]
             }
 
             MorphShape {
                 visible: !body.caption
                 anchors.fill: parent
                 shape: body.selected ? body.style.shape : area.containsMouse ? "cookie12" : "circle"
-                color: body.selected ? Theme[body.style.color]
-                     : area.containsMouse ? Theme.surfaceBright : Theme.surfaceContainerHighest
+                // только точные пары ролей: контраст подписи гарантирован при любой схеме
+                color: body.selected ? Theme[body.style.color] : Theme[body.style.box]
+                Behavior on color { enabled: !Theme.transitioning; ColorAnimation { duration: Theme.motion.effectsFast } }
                 rotation: body.selected ? page.time * 6 : 0
             }
             Label {
@@ -256,7 +260,7 @@ Item {
                 fontSizeMode: Text.HorizontalFit
                 minimumPixelSize: 10
                 elide: Text.ElideNone
-                color: body.selected ? Theme[body.style.fg] : Theme.fgSurface
+                color: body.selected ? Theme[body.style.fg] : Theme[body.style.fgBox]
             }
             MouseArea {
                 id: area
