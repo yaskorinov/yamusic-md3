@@ -223,6 +223,11 @@ Window {
     Shortcut {
         sequences: [StandardKey.Find]
         onActivated: {
+            // в списке треков — сначала поиск по нему; повторное нажатие — общий поиск
+            if (!nowPlaying.open && router.currentItem && router.currentItem.findInPage && router.currentItem.findInPage())
+                return
+            if (nowPlaying.open)
+                nowPlaying.hide()
             router.reset("search")
             Qt.callLater(() => router.currentItem && router.currentItem.focusSearch && router.currentItem.focusSearch())
         }

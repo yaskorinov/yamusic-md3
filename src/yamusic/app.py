@@ -14,7 +14,7 @@ from PySide6.QtGui import QFontDatabase, QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterSingletonInstance
 from PySide6.QtQuick import QQuickWindow
 
-from . import icons, settings, theme  # noqa: F401  регистрируют YaMusic.Core
+from . import icons, settings, theme, trackfilter  # noqa: F401  регистрируют YaMusic.Core
 from .aio import AsyncRunner
 from .auth import Auth
 from .catalog import Catalog

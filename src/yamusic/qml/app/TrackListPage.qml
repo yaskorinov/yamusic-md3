@@ -4,6 +4,8 @@ import Md3
 import YaMusic.Core
 
 // Страница со списком треков (виртуализированный ListView): шапка прокручивается вместе со списком.
+// Поиск по списку (кнопка в шапке или Ctrl+F): пока в поле есть текст, список показывает найденное,
+// и «Слушать», «Перемешать», клик по треку ставят в очередь именно найденное.
 Item {
     id: page
 
@@ -23,6 +25,35 @@ Item {
     property var heroShape: "cookie9"
     property var heroArtistRefs: []            // исполнители-ссылки под названием (альбом)
     readonly property bool scrolled: list.contentY - list.originY > 48
+
+    property bool searchOpen: false
+    property string searchText
+    readonly property var shownModel: model ? filter : null   // то, что в списке: всё или найденное
+
+    // Ctrl+F: открыть поиск по списку. false — искать тут нечего или поле уже в фокусе
+    // (тогда повторный Ctrl+F уходит в общий поиск).
+    function findInPage() {
+        if (!model || model.count === 0 || !showHeader)
+            return false
+        const field = list.headerItem ? list.headerItem.searchField : null
+        if (searchOpen && field && field.inputItem.activeFocus)
+            return false
+        searchOpen = true
+        list.userScrolled = false
+        list.positionViewAtBeginning()
+        Qt.callLater(() => list.headerItem && list.headerItem.searchField.inputItem.forceActiveFocus())
+        return true
+    }
+    function closeSearch() {
+        searchOpen = false
+        searchText = ""
+    }
+
+    TrackFilter {
+        id: filter
+        source: page.model
+        query: page.searchText
+    }
 
     signal trackActivated(int row)
 
@@ -49,7 +80,7 @@ Item {
         anchors.fill: parent
         anchors.leftMargin: 16
         anchors.rightMargin: 16
-        model: page.model
+        model: page.shownModel
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         acceptedButtons: Qt.NoButton
@@ -63,13 +94,14 @@ Item {
         function keepTop() { if (!userScrolled) Qt.callLater(() => contentY = originY) }
         onMovementStarted: userScrolled = true   // касание
         Connections {
-            target: page.model
+            target: page.shownModel
             ignoreUnknownSignals: true
             function onModelReset() { list.userScrolled = false; list.keepTop() }
         }
 
         header: Item {
             id: headerItem
+            readonly property alias searchField: searchField
             width: list.width
             implicitHeight: hero.implicitHeight + 56
             onImplicitHeightChanged: list.keepTop()
@@ -170,19 +202,52 @@ Item {
                             text: "Слушать"
                             icon: "play_arrow"
                             size: "m"
-                            onClicked: Player.playFrom(page.model, 0)
+                            enabled: page.shownModel !== null && page.shownModel.count > 0
+                            onClicked: Player.playFrom(page.shownModel, 0)
                         }
                         Button {
                             text: "Перемешать"
                             icon: "shuffle"
                             style: "tonal"
                             size: "m"
-                            onClicked: Player.shuffleFrom(page.model)
+                            enabled: page.shownModel !== null && page.shownModel.count > 0
+                            onClicked: Player.shuffleFrom(page.shownModel)
                         }
                         Loader {
                             active: page.headerExtra !== null
                             sourceComponent: page.headerExtra
                         }
+                        IconButton {
+                            icon: "search"
+                            size: "m"
+                            style: page.searchOpen ? "tonal" : "standard"
+                            checkable: true
+                            autoToggle: false
+                            checked: page.searchOpen
+                            onClicked: page.searchOpen ? page.closeSearch() : page.findInPage()
+                        }
+                    }
+                    RowLayout {
+                        visible: page.searchOpen
+                        Layout.fillWidth: true
+                        Layout.topMargin: 10
+                        spacing: 16
+                        SearchField {
+                            id: searchField
+                            Layout.fillWidth: true
+                            Layout.maximumWidth: 420
+                            placeholder: "Найти в списке"
+                            text: page.searchText
+                            onTextChanged: page.searchText = text
+                            Keys.onEscapePressed: page.closeSearch()
+                        }
+                        Label {
+                            visible: filter.active
+                            text: filter.count + " из " + (page.model ? page.model.count : 0)
+                            type: "bodyMedium"
+                            color: Theme.fgSurfaceVariant
+                        }
+                        Item { Layout.fillWidth: true }
                     }
                 }
             }
@@ -208,9 +273,9 @@ Item {
             current: model.trackId === Player.trackId
             onActivated: {
                 page.trackActivated(index)
-                Player.playFrom(page.model, index)
+                Player.playFrom(page.shownModel, index)
             }
-            onLikeClicked: Library.toggleLike(page.model.get(index))
+            onLikeClicked: Library.toggleLike(page.shownModel.get(index))
         }
 
         footer: Item {
@@ -220,6 +285,18 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.top: parent.top
                 visible: page.model && page.model.loading && page.model.count > 0
+            }
+            Label {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: parent.top
+                anchors.topMargin: 8
+                width: Math.min(parent.width - 32, 520)
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                visible: filter.active && filter.count === 0 && !(page.model && page.model.loading)
+                text: "По запросу «" + page.searchText.trim() + "» в этом списке ничего нет"
+                type: "bodyLarge"
+                color: Theme.fgSurfaceVariant
             }
         }
     }
