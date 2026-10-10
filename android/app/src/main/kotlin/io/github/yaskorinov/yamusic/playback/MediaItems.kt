@@ -1,0 +1,50 @@
+package io.github.yaskorinov.yamusic.playback
+
+import android.net.Uri
+import android.os.Bundle
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import io.github.yaskorinov.yamusic.api.Track
+
+// Плеер получает не ссылку на файл, а «yamusic://track/<id>»: настоящая ссылка живёт недолго,
+// поэтому её запрашивает TrackUrlResolver прямо перед загрузкой.
+private const val SCHEME = "yamusic"
+
+fun trackUri(id: String): Uri = Uri.Builder().scheme(SCHEME).authority("track").appendPath(id).build()
+
+/** Идентификатор трека из «yamusic://track/<id>», для остальных адресов — null. */
+fun trackIdOf(uri: Uri): String? = if (uri.scheme == SCHEME) uri.lastPathSegment else null
+
+fun Track.toMediaItem(): MediaItem {
+    val extras = Bundle().apply {
+        putString("albumId", albumId)
+        putString("version", version)
+        putString("coverUri", coverUri)
+        putLong("durationMs", durationMs)
+        putBoolean("explicit", explicit)
+    }
+    val metadata = MediaMetadata.Builder()
+        .setTitle(title)
+        .setArtist(artists)
+        .setAlbumTitle(album)
+        .setArtworkUri(cover(400).takeIf { it.isNotEmpty() }?.let(Uri::parse))
+        .setExtras(extras)
+        .build()
+    return MediaItem.Builder().setMediaId(id).setUri(trackUri(id)).setMediaMetadata(metadata).build()
+}
+
+/** Обратно в трек: интерфейс мог перезапуститься, а очередь осталась в сервисе. */
+fun MediaItem.toTrack(): Track {
+    val extras = mediaMetadata.extras
+    return Track(
+        id = mediaId,
+        albumId = extras?.getString("albumId").orEmpty(),
+        title = mediaMetadata.title?.toString().orEmpty(),
+        version = extras?.getString("version").orEmpty(),
+        artists = mediaMetadata.artist?.toString().orEmpty(),
+        album = mediaMetadata.albumTitle?.toString().orEmpty(),
+        coverUri = extras?.getString("coverUri").orEmpty(),
+        durationMs = extras?.getLong("durationMs") ?: 0,
+        explicit = extras?.getBoolean("explicit") ?: false,
+    )
+}

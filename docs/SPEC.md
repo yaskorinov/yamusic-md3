@@ -287,3 +287,25 @@ uv run yamusic --size 900x700 --set startPage=settings --screenshot out.png  # �
   чипы, группы) отмеряются от него. Иначе узкие глифы (logout, refresh) дают лишние 2–4 px слева и в зазоре.
 - `ListView` с `header` не сдвигает `contentY`, когда шапка меняет высоту, — см. `keepTop()` в `TrackListPage`.
 - Шрифт иконок `assets/fonts/MaterialSymbolsRounded.ttf` — полный вариативный (15 МБ); перед упаковкой урезать через `pyftsubset`.
+
+## Android (`android/`)
+
+Отдельное нативное приложение: Kotlin + Jetpack Compose (Material 3 Expressive из `material3` 1.5), Media3.
+С десктопным клиентом общие только дизайн, знание API и файлы шрифтов (`src/yamusic/assets/fonts` подключён
+как assets — там же таблица значков `icons.json`).
+
+- **Сборка**: `cd android && ./gradlew :app:assembleDebug`, установка — `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
+  Нужны JDK 21 и Android SDK (`local.properties` → `sdk.dir`, в git не попадает). minSdk 31, compileSdk 37.
+- **API** (`api/YandexApi.kt`): OkHttp + kotlinx.serialization, те же правила, что в `api.py`: не больше
+  4 запросов разом, 429/5xx повторяются с нарастающей паузой. Идентификаторы приходят числом или строкой — `IdSerializer`.
+- **Вход** (`data/Session.kt`): тот же Device Flow; кнопка копирует код и открывает ya.ru/device в браузере.
+  Токен шифруется ключом Android Keystore (`data/TokenStore.kt`), резервное копирование выключено.
+- **Воспроизведение** (`playback/`): `PlaybackService` — `MediaSessionService` с ExoPlayer: фон, уведомление,
+  аудиофокус, пауза при отключении наушников. В очереди лежат адреса `yamusic://track/<id>`; настоящую ссылку
+  (`get-file-info`, как на десктопе) `TrackUrlResolver` запрашивает прямо перед загрузкой и держит 10 минут.
+  По лимитному соединению — `hq`, иначе `lossless` с откатом на `hq`. Сбой трека: повтор с новой ссылкой,
+  затем следующий (не больше трёх подряд).
+- **Интерфейс** (`ui/`): `PlayerConnection` (MediaController) отдаёт состояние потоком; позицию экран опрашивает сам.
+  Тема — `SchemeContent` из цвета обложки (Celebi + Score, библиотека `material-color-utilities`), цвета перетекают за 0,6 с.
+- **Сделано**: вход, «Мне нравится», лайк, мини- и полный плеер, фоновое воспроизведение.
+  **Нет**: волны, плейлистов, поиска, текстов, учёта прослушиваний (`/play-audio`), настроек, плавного перехода.
