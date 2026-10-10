@@ -1,14 +1,17 @@
 package io.github.yaskorinov.yamusic.data
 
+import android.util.Log
 import io.github.yaskorinov.yamusic.api.ApiException
 import io.github.yaskorinov.yamusic.api.Playlist
 import io.github.yaskorinov.yamusic.api.Track
 import io.github.yaskorinov.yamusic.api.YandexApi
+import io.github.yaskorinov.yamusic.api.toPlaylist
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -65,6 +68,13 @@ class Library(
     private val _playlists = MutableStateFlow<List<Playlist>>(emptyList())
     val playlists = _playlists.asStateFlow()
 
+    /** Короткие сообщения о сделанном («Добавлено в …», «Волна закреплена») — их показывает главный экран. */
+    val messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+
+    /** Сиды закреплённых волн ('track:123'). */
+    private val _pins = MutableStateFlow<Set<String>>(emptySet())
+    val pins = _pins.asStateFlow()
+
     /** Подсказка волне: (like | unlike | dislike, трек). */
     var onFeedback: ((String, Track) -> Unit)? = null
 
@@ -97,6 +107,13 @@ class Library(
                 save(uid)
             } catch (e: IOException) {
                 offline(e, "плейлисты")
+            }
+        }
+        scope.launch {
+            try {
+                _pins.value = api.wavePins()
+            } catch (e: IOException) {
+                Log.w(TAG, "закреплённое не загрузилось: ${e.message}")
             }
         }
         job?.cancel()
@@ -212,6 +229,87 @@ class Library(
         }
     }
 
+    // --- меню трека: плейлисты и закрепление волны ---------------------------------
+
+    /** Свои плейлисты: только в них можно добавлять треки. */
+    fun ownPlaylists(all: List<Playlist>): List<Playlist> {
+        val uid = session.account?.uid ?: return emptyList()
+        return all.filter { it.uid == uid }
+    }
+
+    /** Добавить трек в начало своего плейлиста. */
+    fun addToPlaylist(track: Track, playlist: Playlist) {
+        scope.launch {
+            try {
+                insert(playlist, track, revision = null)
+                messages.tryEmit("Добавлено в «${playlist.title}»")
+            } catch (e: IOException) {
+                messages.tryEmit("Не удалось добавить трек: ${e.message}")
+            }
+        }
+    }
+
+    /** Создать плейлист и, если передан [track], сразу положить его туда. */
+    fun createPlaylist(title: String, track: Track?) {
+        val uid = session.account?.uid ?: return
+        val name = title.trim()
+        if (name.isEmpty()) return
+        scope.launch {
+            val created = try {
+                api.playlistCreate(uid, name)
+            } catch (e: IOException) {
+                messages.tryEmit("Не удалось создать плейлист: ${e.message}")
+                return@launch
+            }
+            val playlist = created.toPlaylist().let { if (it.uid.isEmpty()) it.copy(uid = uid) else it }
+            _playlists.update { listOf(playlist) + it.filterNot { old -> old.id == playlist.id } }
+            var text = "Плейлист «${playlist.title.ifEmpty { name }}» создан"
+            if (track != null) {
+                text += try {
+                    insert(playlist, track, created.revision)
+                    " и трек добавлен"
+                } catch (e: IOException) {
+                    ", но трек не добавлен: ${e.message}"
+                }
+            }
+            save(uid)
+            messages.tryEmit(text)
+        }
+    }
+
+    /** Вставка в начало; если ревизия устарела — перечитать её и повторить один раз. */
+    private suspend fun insert(playlist: Playlist, track: Track, revision: Int?) {
+        var current = revision ?: api.playlistRevision(playlist.uid, playlist.kind)
+        val changed = try {
+            api.playlistInsert(playlist.uid, playlist.kind, current, track)
+        } catch (e: ApiException) {
+            if (!e.staleRevision) throw e
+            current = api.playlistRevision(playlist.uid, playlist.kind)
+            api.playlistInsert(playlist.uid, playlist.kind, current, track)
+        }
+        _playlists.update { list ->
+            list.map { if (it.id == playlist.id) it.copy(trackCount = changed.trackCount.takeIf { n -> n > 0 } ?: (it.trackCount + 1)) else it }
+        }
+        // если плейлист уже открыт — трек появляется в нём сразу
+        playlistTracks[playlist.id]?.tracks?.update { tracks -> listOf(track) + tracks.filterNot { it.id == track.id } }
+        session.account?.uid?.let(::save)
+    }
+
+    /** Закрепить или открепить волну по сиду. Состояние меняется сразу, при ошибке — откат. */
+    fun toggleWavePin(seed: String) {
+        val pin = seed !in _pins.value
+        _pins.update { if (pin) it + seed else it - seed }
+        scope.launch {
+            try {
+                api.setWavePinned(seed, pin)
+                messages.tryEmit(if (pin) "Волна закреплена" else "Волна откреплена")
+            } catch (e: IOException) {
+                _pins.update { if (pin) it - seed else it + seed }
+                messages.tryEmit("Не удалось ${if (pin) "закрепить" else "открепить"} волну: ${e.message}")
+            }
+        }
+    }
+
     private fun apply(track: Track, liked: Boolean) {
         _likedIds.update { if (liked) it + track.id else it - track.id }
         _liked.update { list ->
@@ -231,12 +329,14 @@ class Library(
         loadedPlaylists.clear()
         _liked.value = emptyList()
         _likedIds.value = emptySet()
+        _pins.value = emptySet()
         _loading.value = false
         _error.value = ""
         notice.value = ""
     }
 
     private companion object {
+        const val TAG = "YaMusic"
         const val CHUNK = 200
     }
 }

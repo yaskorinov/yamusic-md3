@@ -12,13 +12,13 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.EaseOutCubic
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
@@ -37,9 +37,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +55,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.yaskorinov.yamusic.api.Track
 import io.github.yaskorinov.yamusic.data.AuthState
 import io.github.yaskorinov.yamusic.playback.PlayContext
 import io.github.yaskorinov.yamusic.playback.PlayerState
@@ -62,6 +66,7 @@ import io.github.yaskorinov.yamusic.ui.CoverBackdrop
 import io.github.yaskorinov.yamusic.ui.LocalDownloaded
 import io.github.yaskorinov.yamusic.ui.LocalLibrary
 import io.github.yaskorinov.yamusic.ui.LocalTheme
+import io.github.yaskorinov.yamusic.ui.LocalTrackMenu
 import io.github.yaskorinov.yamusic.ui.LoginScreen
 import io.github.yaskorinov.yamusic.ui.MiniPlayer
 import io.github.yaskorinov.yamusic.ui.Motion
@@ -73,6 +78,8 @@ import io.github.yaskorinov.yamusic.ui.SettingsScreen
 import io.github.yaskorinov.yamusic.ui.Shapes
 import io.github.yaskorinov.yamusic.ui.Symbol
 import io.github.yaskorinov.yamusic.ui.TrackListScreen
+import io.github.yaskorinov.yamusic.ui.TrackMenuActions
+import io.github.yaskorinov.yamusic.ui.TrackMenuSheet
 import io.github.yaskorinov.yamusic.ui.WaveScreen
 import io.github.yaskorinov.yamusic.ui.YaTheme
 
@@ -192,13 +199,37 @@ private fun Home(app: App, playerState: PlayerState, direction: Int) {
     }
 
     val theme = LocalTheme.current
+    // Меню трека (долгое нажатие) и короткие сообщения библиотеки — поверх всего, включая полноэкранный плеер
+    var menuTrack by remember { mutableStateOf<Track?>(null) }
+    val snackbars = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) { app.library.messages.collect { snackbars.showSnackbar(it) } }
+    val menuActions = TrackMenuActions(
+        openQueue = {
+            playerTab = "queue"
+            theme.coverCenter()?.let { origin = it }
+            expanded = true
+        },
+        openSettings = {
+            expanded = false
+            paths = paths.mapIndexed { index, old -> if (index == Tab.Account.ordinal) "" else old }
+            tab = Tab.Account
+        },
+        openPage = {
+            expanded = false
+            if (path.substringAfterLast('\n') != it) push(it)
+        },
+    )
     val settings = app.settings
     val ambient by settings.ambientBackground.flow.collectAsStateWithLifecycle()
     val mode by settings.backdropMode.flow.collectAsStateWithLifecycle()
     val drift by settings.nowPlayingDrift.flow.collectAsStateWithLifecycle()
     val downloadedIds by app.downloads.done.collectAsStateWithLifecycle()
     val density = LocalDensity.current
-    CompositionLocalProvider(LocalDownloaded provides downloadedIds.keys, LocalLibrary provides app.library) {
+    CompositionLocalProvider(
+        LocalDownloaded provides downloadedIds.keys,
+        LocalLibrary provides app.library,
+        LocalTrackMenu provides { menuTrack = it },
+    ) {
         Box(Modifier.fillMaxSize()) {
             if (ambient && hasTrack) {
                 CoverBackdrop(
@@ -289,7 +320,9 @@ private fun Home(app: App, playerState: PlayerState, direction: Int) {
                     if (path.substringAfterLast('\n') != it) push(it)
                 },
             )
+            SnackbarHost(snackbars, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 72.dp))
         }
+        menuTrack?.let { track -> TrackMenuSheet(track, app, playerState, menuActions) { menuTrack = null } }
     }
     BackHandler(enabled = expanded || path.isNotEmpty()) {
         if (expanded) expanded = false else pop()
@@ -361,7 +394,8 @@ private fun Page(
             downloads = app.downloads,
         )
         page.startsWith(PAGE_ALBUM) -> {
-            val id = page.removePrefix(PAGE_ALBUM)
+            // album:ID или album:ID#TRACK — «Перейти к треку» из меню
+            val id = page.removePrefix(PAGE_ALBUM).substringBefore('#')
             val data = remember(id) { app.catalog.album(id) }
             val album by data.info.collectAsStateWithLifecycle()
             TrackListScreen(
@@ -383,6 +417,7 @@ private fun Page(
                 onRetry = { app.catalog.album(id, reload = true) },
                 onBack = pop,
                 downloads = app.downloads,
+                focusTrackId = page.substringAfter('#', ""),
             )
         }
         page.startsWith(PAGE_ARTIST) -> {

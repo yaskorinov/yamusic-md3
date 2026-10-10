@@ -110,6 +110,7 @@ class PlaylistDto(
     @Serializable(with = IdSerializer::class) val kind: String = "",
     val title: String = "",
     val trackCount: Int = 0,
+    val revision: Int = 0,
     val cover: PlaylistCoverDto = PlaylistCoverDto(),
     val ogImage: String = "",
     val owner: OwnerDto = OwnerDto(),

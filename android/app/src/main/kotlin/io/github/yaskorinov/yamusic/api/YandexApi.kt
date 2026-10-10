@@ -21,6 +21,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
@@ -36,6 +38,10 @@ import okhttp3.Response
 
 /** Ошибка API: [status] — код HTTP, [code] — имя ошибки из ответа ('authorization_pending', 'session-expired'…). */
 class ApiException(val status: Int, val code: String, message: String) : IOException(message) {
+    /** Плейлист изменили, пока мы держали его ревизию: 412, 409 или 400 wrong-revision. */
+    val staleRevision: Boolean
+        get() = status == 412 || status == 409 || (status == 400 && ("revision" in code || "revision" in message.orEmpty()))
+
     val unauthorized: Boolean get() = status == 401 || status == 403
 }
 
@@ -114,6 +120,54 @@ class YandexApi(private val http: OkHttpClient) {
         val missing = items.filter { it.track == null }.map { it.id }
         val fetched = missing.chunked(CHUNK).flatMap { tracks(it) }.associateBy { it.id }
         return items.mapNotNull { it.track?.toTrack() ?: fetched[it.id] }
+    }
+
+    /** Ревизия плейлиста: без неё его состав не изменить. */
+    suspend fun playlistRevision(uid: String, kind: String): Int =
+        call(PlaylistDto.serializer(), request("/users/$uid/playlists/$kind")).revision
+
+    /**
+     * Вставить трек в начало плейлиста. Устаревшая [revision] — [ApiException.staleRevision]:
+     * плейлист успели изменить, ревизию нужно перечитать.
+     */
+    suspend fun playlistInsert(uid: String, kind: String, revision: Int, track: Track): PlaylistDto {
+        val diff = buildJsonArray {
+            add(buildJsonObject {
+                put("op", "insert")
+                put("at", 0)
+                put("tracks", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", track.id)
+                        put("albumId", track.albumId)
+                    })
+                })
+            })
+        }
+        val form = mapOf("kind" to kind, "revision" to revision.toString(), "diff" to diff.toString())
+        return call(PlaylistDto.serializer(), request("/users/$uid/playlists/$kind/change", form = form))
+    }
+
+    suspend fun playlistCreate(uid: String, title: String): PlaylistDto =
+        call(PlaylistDto.serializer(), request("/users/$uid/playlists/create", form = mapOf("title" to title, "visibility" to "public")))
+
+    /** Сиды закреплённых волн ('track:123', 'artist:45'). Формат ответа не документирован — читаем терпимо. */
+    suspend fun wavePins(): Set<String> {
+        val result = call(JsonElement.serializer(), request("/pins"))
+        val pins = (result as? JsonArray) ?: ((result as? JsonObject)?.get("pins") as? JsonArray) ?: return emptySet()
+        return pins.mapNotNullTo(HashSet()) { pin ->
+            val data = (pin as? JsonObject)?.get("data") as? JsonObject ?: return@mapNotNullTo null
+            val seeds = data["seeds"] ?: (data["wave"] as? JsonObject)?.get("seeds") ?: data["seed"]
+            when (seeds) {
+                is JsonPrimitive -> seeds.content
+                is JsonArray -> seeds.mapNotNull { (it as? JsonPrimitive)?.content }.joinToString(",")
+                else -> null
+            }?.takeIf { it.isNotEmpty() }
+        }
+    }
+
+    suspend fun setWavePinned(seed: String, pinned: Boolean) {
+        val body = buildJsonObject { put("seeds", seed) }
+        send(request("/pin/wave", body = body, method = if (pinned) "PUT" else "DELETE")) { }
     }
 
     // --- каталог и поиск -------------------------------------------------------------
@@ -280,6 +334,8 @@ class YandexApi(private val http: OkHttpClient) {
         form: Map<String, String>? = null,
         body: JsonObject? = null,
         client: String = CLIENT,
+        /** Для запросов с телом не методом POST (PUT, DELETE). */
+        method: String? = null,
     ): Request {
         val url = (BASE_URL + path).toHttpUrl().newBuilder()
         query.forEach { (key, value) -> url.addQueryParameter(key, value) }
@@ -289,7 +345,7 @@ class YandexApi(private val http: OkHttpClient) {
             .header("Accept-Language", "ru")
         token?.let { request.header("Authorization", "OAuth $it") }
         form?.let { request.post(formBody(it)) }
-        body?.let { request.post(it.toString().toRequestBody(JSON)) }
+        body?.let { request.method(method ?: "POST", it.toString().toRequestBody(JSON)) }
         return request.build()
     }
 

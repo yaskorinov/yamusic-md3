@@ -52,6 +52,9 @@ class Wave(
     private val _error = MutableStateFlow("")
     val error = _error.asStateFlow()
 
+    /** Волна от трека или исполнителя: сид 'track:ID' / 'artist:ID' вместо настроек «Моей волны». */
+    private var station = ""
+
     private var sessionId = ""
     private var batchId = ""
     private val recent = ArrayList<String>()   // 'id:albumId' полученных треков
@@ -70,7 +73,16 @@ class Wave(
     // --- управление -----------------------------------------------------------------
 
     /** Запустить волну с нынешними настройками. */
-    fun start() = newSession(replace = false)
+    fun start() {
+        station = ""
+        newSession(replace = false)
+    }
+
+    /** Волна по треку или исполнителю: только их сид, настройки «Моей волны» не участвуют. */
+    fun playStation(seed: String) {
+        station = seed
+        newSession(replace = false)
+    }
 
     /** Выбрать вариант настройки; повторный выбор того же — снять («любое»). [active] — волна сейчас играет. */
     fun select(key: String, seed: String, active: Boolean) {
@@ -78,10 +90,14 @@ class Wave(
         if (selection[key] == seed) selection.remove(key) else selection[key] = seed
         _selection.value = selection
         settings.waveSeeds.value = selection.values.joinToString(",")
-        if (active) newSession(replace = true)
+        if (active) {
+            station = "" // смена настроек возвращает к «Моей волне»
+            newSession(replace = true)
+        }
     }
 
     private fun seeds(): List<String> {
+        if (station.isNotEmpty()) return listOf(station)
         val selection = _selection.value
         return listOf(selection["context"] ?: WAVE_SEED) + selection.filterKeys { it != "context" }.values
     }

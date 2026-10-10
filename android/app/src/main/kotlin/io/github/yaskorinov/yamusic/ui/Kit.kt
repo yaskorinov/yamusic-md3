@@ -551,6 +551,8 @@ fun SearchField(
     placeholder: String,
     modifier: Modifier = Modifier,
     focus: Boolean = false,
+    /** Значок слева; не «search» — поле для ввода названия, клавиша ввода тогда «Готово». */
+    icon: String = "search",
     onSearch: () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
@@ -561,12 +563,14 @@ fun SearchField(
         onValueChange = onValueChange,
         modifier = modifier.focusRequester(requester),
         placeholder = { Text(placeholder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        leadingIcon = { Symbol("search") },
+        leadingIcon = { Symbol(icon) },
         trailingIcon = { if (value.isNotEmpty()) IconButton(onClick = { onValueChange("") }) { Symbol("close") } },
         singleLine = true,
         shape = CircleShape,
-        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
-        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { onSearch() }),
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            imeAction = if (icon == "search") androidx.compose.ui.text.input.ImeAction.Search else androidx.compose.ui.text.input.ImeAction.Done,
+        ),
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { onSearch() }, onDone = { onSearch() }),
         colors = androidx.compose.material3.TextFieldDefaults.colors(
             focusedContainerColor = colors.surfaceContainerHigh,
             unfocusedContainerColor = colors.surfaceContainerHigh,

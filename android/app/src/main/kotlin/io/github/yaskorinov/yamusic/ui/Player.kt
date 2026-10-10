@@ -2,12 +2,13 @@ package io.github.yaskorinov.yamusic.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.EaseInCubic
 import androidx.compose.animation.core.EaseInQuad
 import androidx.compose.animation.core.EaseOutCubic
 import androidx.compose.animation.core.EaseOutQuad
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -16,7 +17,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.animation.core.spring
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
@@ -70,12 +71,14 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -243,15 +246,28 @@ private fun Pill(
     val coverSpin by app.settings.coverSpin.flow.collectAsStateWithLifecycle()
     val spin = rememberSpin(current && coverSpin && state.playing)
     val live = track.id == state.track?.id
+    val menu = LocalTrackMenu.current
+    val haptics = LocalHapticFeedback.current
     Surface(
-        onClick = { onOpen?.invoke() },
-        enabled = onOpen != null,
         modifier = modifier.fillMaxWidth().height(72.dp),
         shape = CircleShape,
         color = colors.surfaceContainerHighest,
         shadowElevation = 3.dp,
     ) {
-        Row(Modifier.padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            // нажатие раскрывает плеер, долгое — меню трека
+            Modifier
+                .combinedClickable(
+                    enabled = onOpen != null,
+                    onClick = { onOpen?.invoke() },
+                    onLongClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        menu(track)
+                    },
+                )
+                .padding(start = 12.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             MorphImage(
                 track.cover(200),
                 if (state.playing) Shapes.Cookie12 else Shapes.SoftSquare,

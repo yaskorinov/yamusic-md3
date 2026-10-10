@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -56,8 +58,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -75,6 +79,7 @@ import io.github.yaskorinov.yamusic.data.TrackList
 import io.github.yaskorinov.yamusic.playback.PlayContext
 import io.github.yaskorinov.yamusic.playback.PlayerConnection
 import io.github.yaskorinov.yamusic.playback.PlayerState
+import kotlinx.coroutines.delay
 
 /**
  * Страница со списком треков (перенос TrackListPage.qml): шапка-«герой» прокручивается вместе со списком —
@@ -105,6 +110,8 @@ fun TrackListScreen(
     onRetry: () -> Unit,
     onBack: () -> Unit,
     downloads: Downloads,
+    /** «Перейти к треку»: список прокручивается к этому треку, строка ненадолго подсвечивается. */
+    focusTrackId: String = "",
 ) {
     val all by list.tracks.collectAsStateWithLifecycle()
     val loading by list.loading.collectAsStateWithLifecycle()
@@ -115,6 +122,16 @@ fun TrackListScreen(
     val filtering = query.isNotBlank()
 
     val listState = rememberLazyListState()
+    var focus by rememberSaveable(focusTrackId) { mutableStateOf(focusTrackId) }
+    LaunchedEffect(focus, all.size) {
+        if (focus.isEmpty()) return@LaunchedEffect
+        val index = all.indexOfFirst { it.id == focus }
+        if (index < 0) return@LaunchedEffect
+        // +1 — шапка; строка встаёт в верхней трети экрана
+        listState.animateScrollToItem(index + 1, -listState.layoutInfo.viewportSize.height / 3)
+        delay(1800)
+        focus = ""
+    }
     val threshold = with(LocalDensity.current) { 48.dp.toPx() }
     val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > threshold } }
     var headerHeight by remember { mutableFloatStateOf(0f) }
@@ -237,6 +254,7 @@ fun TrackListScreen(
                         onClick = { player.play(tracks, index, context) },
                         number = if (numbered) index + 1 else null,
                         modifier = Modifier.animateItem(),
+                        focused = track.id == focus,
                     )
                 }
                 if (loading) {
@@ -355,19 +373,34 @@ fun TrackRow(
     onClick: () -> Unit,
     number: Int? = null,
     modifier: Modifier = Modifier,
+    /** Строку только что нашли по «Перейти к треку»: она ненадолго подсвечена. */
+    focused: Boolean = false,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     val library = LocalLibrary.current
+    val menu = LocalTrackMenu.current
+    val haptics = LocalHapticFeedback.current
     val liked = library?.likedIds?.collectAsStateWithLifecycle()?.value?.contains(track.id) == true
-    val highlight by animateColorAsState(if (current) colors.primary.copy(alpha = 0.12f) else colors.primary.copy(alpha = 0f), tween(Motion.EffectsDefault), label = "current")
+    val highlight by animateColorAsState(
+        colors.primary.copy(alpha = if (focused) 0.26f else if (current) 0.12f else 0f),
+        tween(if (focused) Motion.EffectsDefault else 600),
+        label = "current",
+    )
     Row(
         modifier
             .fillMaxWidth()
             .height(64.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(highlight)
-            .clickable(enabled = track.available, onClick = onClick)
+            // долгое нажатие — меню трека; оно есть и у недоступных треков
+            .combinedClickable(
+                onClick = { if (track.available) onClick() },
+                onLongClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    menu(track)
+                },
+            )
             .padding(start = 12.dp, end = if (trailing == null) 12.dp else 4.dp)
             .alpha(if (track.available) 1f else 0.38f),
         verticalAlignment = Alignment.CenterVertically,
