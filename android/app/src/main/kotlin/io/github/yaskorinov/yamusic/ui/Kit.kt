@@ -353,6 +353,18 @@ fun TopBar(title: String, showTitle: Boolean = true, onBack: (() -> Unit)? = nul
     }
 }
 
+/** Заголовок раздела верхнего уровня: один кегль на «Моей волне», в «Коллекции» и в «Настройках». */
+@Composable
+fun PageTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        modifier.padding(top = 20.dp, bottom = 16.dp),
+        style = MaterialTheme.typography.displaySmall,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+    )
+}
+
 /**
  * Пункт навигации: пилюля; у выбранного — значок в квадратике цвета primary. В нижней панели
  * подпись стоит рядом со значком, как в боковой панели десктопного клиента.

@@ -54,12 +54,7 @@ fun CollectionScreen(
         ),
     ) {
         item(key = "header") {
-            Text(
-                "Коллекция",
-                Modifier.padding(start = 8.dp, top = 20.dp, bottom = 16.dp),
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.SemiBold,
-            )
+            PageTitle("Коллекция", Modifier.padding(start = 8.dp))
         }
         if (notice.isNotEmpty()) {
             item(key = "notice") {

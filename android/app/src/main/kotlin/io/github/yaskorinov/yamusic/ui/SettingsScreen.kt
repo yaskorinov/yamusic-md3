@@ -80,19 +80,18 @@ private val BACKDROPS = listOf(
 /** Настройки (перенос SettingsPage.qml): группы-карточки с заголовком и значком, строки «подпись — контрол». */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun SettingsScreen(app: App, contentPadding: PaddingValues, onBack: (() -> Unit)? = null) {
+fun SettingsScreen(app: App, contentPadding: PaddingValues) {
     val settings = app.settings
     val account = app.session.account
     val colors = MaterialTheme.colorScheme
     var confirmSignOut by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize().padding(top = contentPadding.calculateTopPadding())) {
-        TopBar("Настройки", onBack = onBack)
-        Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
-                .padding(bottom = contentPadding.calculateBottomPadding() + 16.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp),
-        ) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
+            .padding(top = contentPadding.calculateTopPadding(), bottom = contentPadding.calculateBottomPadding() + 16.dp),
+    ) {
+        PageTitle("Настройки")
+        Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
             SettingsCard("Аккаунт", "person") {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Avatar(account?.displayName.orEmpty(), size = 48.dp)

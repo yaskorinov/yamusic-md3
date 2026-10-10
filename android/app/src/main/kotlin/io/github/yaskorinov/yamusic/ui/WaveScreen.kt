@@ -118,7 +118,7 @@ fun WaveScreen(wave: Wave, player: PlayerConnection, playerState: PlayerState, c
     }
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
-        TopBar("Моя волна")
+        PageTitle("Моя волна", Modifier.padding(start = 16.dp))
         BoxWithConstraints(
             Modifier.weight(1f).fillMaxWidth().pointerInput(expanded) {
                 if (expanded >= 0) detectTapGestures { expanded = -1 } // нажатие мимо вариантов сворачивает орбиту
