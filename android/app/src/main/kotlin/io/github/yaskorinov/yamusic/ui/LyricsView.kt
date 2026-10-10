@@ -137,6 +137,12 @@ private fun SyncedLyrics(lyrics: Lyrics, player: PlayerConnection, playing: Bool
     val active by remember(lines) {
         derivedStateOf { lines.indexOfLast { it.start <= position + LEAD }.coerceAtLeast(0) }
     }
+    // Место строки среди видимых: паузы в счёт не идут (они свёрнуты), иначе в тексте, где пауза после
+    // каждой строки, размытие и приглушение нарастали бы вдвое быстрее. Строка k — 2k, пауза перед ней — 2k − 1.
+    val places = remember(lines) {
+        var texts = 0
+        IntArray(lines.size) { if (lines[it].gap) 2 * texts - 1 else 2 * texts++ }
+    }
 
     // Прокрутка: список сразу встаёт в цель, а каждая строка получает компенсирующий сдвиг,
     // который уходит в ноль со своей задержкой
@@ -181,7 +187,7 @@ private fun SyncedLyrics(lyrics: Lyrics, player: PlayerConnection, playing: Bool
             } else {
                 Line(
                     line = line,
-                    distance = abs(index - active),
+                    distance = (abs(places[index] - places[active]) + 1) / 2,
                     filling = filling,
                     position = { position },
                     onClick = { player.seekTo((line.start * 1000).toLong()) },
@@ -213,7 +219,9 @@ private fun Line(line: LyricLine, distance: Int, filling: Boolean, position: () 
         if (filling) 1f else max(0.22f, DIM * (1f - 0.1f * max(0, distance - 1))), tween(380, easing = EaseOutCubic), label = "fade",
     )
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
-    val blur = if (filling || distance >= 8) 0.dp else 6.dp * (0.12f + 0.11f * max(0, distance - 1))
+    // дальние строки размыты не сильнее шестой: раньше с восьмой размытие пропадало вовсе, и под размытыми
+    // строками оказывались резкие
+    val blur = if (filling) 0.dp else 6.dp * (0.12f + 0.11f * (distance - 1).coerceIn(0, 5))
     Text(
         text,
         modifier
