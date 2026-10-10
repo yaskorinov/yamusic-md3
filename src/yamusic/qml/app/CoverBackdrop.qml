@@ -1,60 +1,92 @@
 import QtQuick
-import QtQuick.Effects
 import Md3
 
 // Размытая обложка во весь элемент: фон полноэкранного плеера и атмосферная подложка окна.
-// blur (0..1) — в два приёма: обложка грузится уменьшенной (на максимуме 12×12 — билинейное
-// растяжение само даёт мягкий градиент), MultiEffect доразмывает; края вынесены за элемент.
-// flow (0..1) — «плавание»: картинка на месте, переливаются только размытые пятна (шейдер flow).
-// Размытый слой считается один раз; каждый кадр — только выборка со смещением.
+// Размытие — увеличение крошечной копии обложки (сторона _side текселей) шейдером backdrop:
+// ни свёртки, ни полноэкранной текстуры; сила размытия blur (0..1) — размер копии.
+// mode — характер размытия:
+//   gauss    — ровное, как гауссово: гладкие переходы без сетки и полос;
+//   glass    — матовое стекло: обложка угадывается, поверх — мелкое зерно;
+//   palette  — без обложки: плавный градиент из цветов темы (они и так взяты из обложки);
+//   blobs    — крупные цветовые пятна (линейная интерполяция).
+// flow (0..1) — «плавание»: картинка на месте, переливается только размытие.
 Item {
     id: root
 
     property string source
+    property string mode: "gauss"
     property real blur: 1
     property real flow: 0.5
-    property real saturation: 0.1 + 0.4 * (1 - blur)
     property bool running: visible
 
-    readonly property bool ready: img.status === Image.Ready
-    readonly property real _blur: Math.max(0, Math.min(1, blur))
+    readonly property bool _palette: mode === "palette"
+    readonly property bool ready: _palette || img.status === Image.Ready
+    readonly property real _blur: _palette ? 1 : Math.max(0, Math.min(1, blur))
     readonly property bool _flowing: flow > 0 && _blur > 0.2   // чёткую обложку «переливать» нечего
     property real _t: 0
 
+    readonly property int _side: {
+        const b = _blur
+        if (mode === "blobs")
+            return Math.round(12 + 788 * Math.pow(1 - b, 3))
+        const min = mode === "glass" ? 14 : 6
+        return Math.round(min * Math.pow(800 / min, Math.pow(1 - b, 1.5)))
+    }
+
     Image {
         id: img
-        anchors.fill: parent
-        source: root.source.replace("400x400", root._blur < 0.5 ? "800x800" : "400x400")
-        fillMode: Image.PreserveAspectCrop
+        width: root._side
+        height: root._side
+        source: root._palette ? "" : root.source.replace("400x400", root._side > 400 ? "800x800" : "400x400")
+        sourceSize: Qt.size(root._side, root._side)
         asynchronous: true
         smooth: true
         visible: false
-        sourceSize: {
-            const side = Math.round(12 + 788 * Math.pow(1 - root._blur, 3))
-            return Qt.size(side, side)
+        layer.enabled: true
+        layer.smooth: true
+        layer.textureSize: Qt.size(root._side, root._side)
+    }
+
+    // Палитра: сетка 4×3 из цветов темы — шейдер растягивает её так же, как копию обложки
+    Grid {
+        id: swatches
+        columns: 4
+        width: 4
+        height: 3
+        visible: false
+        layer.enabled: root._palette
+        layer.smooth: true
+        layer.textureSize: Qt.size(4, 3)
+        Repeater {
+            model: root._palette ? [
+                "primaryPaletteKeyColor", "secondaryContainer", "tertiaryContainer", "tertiaryPaletteKeyColor",
+                "primaryContainer", "primaryPaletteKeyColor", "secondaryPaletteKeyColor", "tertiaryContainer",
+                "tertiaryPaletteKeyColor", "primaryContainer", "primaryPaletteKeyColor", "secondaryContainer"
+            ] : []
+            Rectangle {
+                required property string modelData
+                width: 1
+                height: 1
+                color: Theme[modelData]
+            }
         }
     }
 
-    Item {
+    ShaderEffect {
         anchors.fill: parent
         visible: root.ready
-        layer.enabled: root._flowing
-        layer.effect: ShaderEffect {
-            property real time: root._t
-            property real amp: 0.08 * root._blur
-            fragmentShader: Qt.resolvedUrl("shaders/flow.frag.qsb")
-        }
-
-        MultiEffect {
-            anchors.fill: parent
-            anchors.margins: root._blur > 0 ? -120 : 0
-            source: img
-            autoPaddingEnabled: false
-            blurEnabled: root._blur > 0
-            blurMax: 64
-            blur: root._blur
-            saturation: root.saturation
-        }
+        property var source: root._palette ? swatches : img
+        property real time: root._t
+        property real amp: root._flowing ? 0.08 * root._blur : 0
+        property real inset: root._flowing ? 0.06 : 0
+        property real cubic: root.mode === "blobs" ? 0 : 1
+        property real saturation: root._palette ? 1 : 1.1 + 0.4 * (1 - root._blur)
+        property real grain: root.mode === "glass" ? 0.05 : 0
+        property size texSize: root._palette ? Qt.size(4, 3) : Qt.size(root._side, root._side)
+        property point crop: root._palette ? Qt.point(1, 1)
+                           : width >= height ? Qt.point(1, height / Math.max(1, width))
+                                             : Qt.point(width / Math.max(1, height), 1)
+        fragmentShader: Qt.resolvedUrl("shaders/backdrop.frag.qsb")
     }
 
     FrameAnimation {

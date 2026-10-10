@@ -8,6 +8,13 @@ Page {
     id: page
     title: "Настройки"
 
+    readonly property var backdropModes: [
+        { mode: "gauss", text: "Мягкое", hint: "Ровное размытие без пятен и полос: обложка плавно растворяется в цвете" },
+        { mode: "glass", text: "Матовое стекло", hint: "Обложка угадывается, как за матовым стеклом; поверх — мелкое зерно" },
+        { mode: "palette", text: "Градиент", hint: "Без обложки: плавный градиент из цветов темы" },
+        { mode: "blobs", text: "Пятна", hint: "Крупные цветовые пятна — как было раньше" }
+    ]
+
     readonly property var variantNames: ({
         content: "По обложке", tonalSpot: "Спокойная", vibrant: "Яркая", expressive: "Выразительная",
         fidelity: "Точная", neutral: "Нейтральная", monochrome: "Монохром"
@@ -78,9 +85,37 @@ Page {
                 }
             }
         }
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 12
+            Label { text: "Фон из обложки"; type: "bodyLarge" }
+            Flow {
+                Layout.fillWidth: true
+                spacing: 8
+                Repeater {
+                    model: page.backdropModes
+                    Chip {
+                        required property var modelData
+                        text: modelData.text
+                        selected: Settings.backdropMode === modelData.mode
+                        onClicked: Settings.backdropMode = modelData.mode
+                    }
+                }
+            }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: (page.backdropModes.find(m => m.mode === Settings.backdropMode) ?? page.backdropModes[0]).hint
+                type: "bodyMedium"
+                color: Theme.fgSurfaceVariant
+            }
+        }
         SettingRow {
             title: "Размытие фона плеера"
-            description: Math.round(Settings.nowPlayingBlur * 100) + " % · 0 — чёткая обложка, 100 — мягкие цветовые пятна"
+            enabled: Settings.backdropMode !== "palette"
+            opacity: enabled ? 1 : 0.5
+            description: Settings.backdropMode === "palette" ? "Градиент от обложки не зависит"
+                : Math.round(Settings.nowPlayingBlur * 100) + " % · 0 — чёткая обложка, 100 — только цвет"
             Slider {
                 width: 220
                 from: 0
@@ -94,7 +129,7 @@ Page {
         SettingRow {
             title: "Плавание размытия"
             description: Settings.nowPlayingDrift > 0
-                ? "Размытые пятна цвета медленно переливаются, пока играет музыка"
+                ? "Цвета фона медленно переливаются, пока играет музыка"
                 : "Выключено — размытие неподвижно"
             Slider {
                 width: 220

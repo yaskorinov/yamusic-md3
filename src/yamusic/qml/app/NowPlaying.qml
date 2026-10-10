@@ -97,12 +97,15 @@ Item {
 
         // Фон: размытая обложка + вуаль цвета темы
         Rectangle { anchors.fill: parent; color: Theme.surface }
-        // Размытие и «плавание» — из настроек (см. CoverBackdrop)
-        CoverBackdrop {
+        // Режим, сила размытия и «плавание» — из настроек (см. CoverBackdrop); при смене трека фон
+        // меняется вместе с цветами темы — под той же шторкой (см. TrackBackdrop)
+        TrackBackdrop {
             anchors.fill: parent
             source: Player.cover
+            mode: Settings.backdropMode
             blur: Settings.nowPlayingBlur
             flow: Settings.nowPlayingDrift
+            followTheme: Settings.accentFromCover
             running: root.visible && Player.playing
         }
         Rectangle {
