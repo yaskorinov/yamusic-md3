@@ -3,6 +3,7 @@ package io.github.yaskorinov.yamusic.api
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
@@ -180,7 +181,12 @@ class SearchDto(
     val tracks: SearchBlockDto<TrackDto> = SearchBlockDto(),
     val albums: SearchBlockDto<AlbumDto> = SearchBlockDto(),
     val artists: SearchBlockDto<ArtistDto> = SearchBlockDto(),
+    val best: BestDto? = null,
 )
+
+/** Лучший результат: [type] — track | album | artist | playlist…, [result] — объект этого типа. */
+@Serializable
+class BestDto(val type: String = "", val result: JsonElement? = null)
 
 @Serializable
 class SearchBlockDto<T>(val results: List<T> = emptyList())

@@ -1,98 +1,97 @@
 package io.github.yaskorinov.yamusic.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import io.github.yaskorinov.yamusic.api.Album
 import io.github.yaskorinov.yamusic.api.Artist
 
-/** Обложка с заглушкой-значком: у части плейлистов и исполнителей картинки нет. */
+/**
+ * Плитка альбома или исполнителя: обложка в фигуре MD3E, название, подпись. Под пальцем фигура морфится
+ * (на десктопе — при наведении), у исполнителей — круг.
+ */
 @Composable
-fun Cover(url: String, size: Dp, shape: Shape, placeholder: String, modifier: Modifier = Modifier) {
-    val colors = MaterialTheme.colorScheme
-    Box(modifier.size(size).clip(shape).background(colors.surfaceContainerHigh), contentAlignment = Alignment.Center) {
-        Symbol(placeholder, size = size * 0.42f, tint = colors.onSurfaceVariant)
-        if (url.isNotEmpty()) {
-            AsyncImage(model = url, contentDescription = null, modifier = Modifier.size(size), contentScale = ContentScale.Crop)
+fun MediaTile(
+    cover: String,
+    title: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    subtitle: String = "",
+    round: Boolean = false,
+    placeholder: String = "album",
+) {
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val align = if (round) Alignment.CenterHorizontally else Alignment.Start
+    Column(modifier.clickable(source, indication = null, onClick = onClick), horizontalAlignment = align) {
+        MorphImage(
+            cover,
+            when {
+                pressed -> if (round) Shapes.Cookie12 else Shapes.Cookie9
+                else -> if (round) Shapes.Circle else Shapes.SoftSquare
+            },
+            Modifier.fillMaxWidth().aspectRatio(1f),
+            placeholder = placeholder,
+            placeholderSize = 48.dp,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            textAlign = if (round) TextAlign.Center else TextAlign.Start,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (subtitle.isNotEmpty()) {
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
 
+/** Ряд плиток сетки: одинаковая ширина, недостающие места остаются пустыми. */
 @Composable
-fun SectionTitle(text: String) {
-    Text(
-        text,
-        Modifier.padding(start = 20.dp, top = 16.dp, bottom = 8.dp),
-        style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-}
-
-@Composable
-fun AlbumRow(albums: List<Album>, onOpen: (Album) -> Unit) {
-    LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
-        items(albums, key = { it.id }) { album ->
-            Column(Modifier.clip(RoundedCornerShape(24.dp)).clickable { onOpen(album) }.padding(4.dp).width(ALBUM_SIDE)) {
-                Cover(album.cover(300), ALBUM_SIDE, RoundedCornerShape(20.dp), "album")
-                Spacer(Modifier.height(8.dp))
-                Text(album.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    listOf(album.kind, album.year.takeIf { it > 0 }?.toString().orEmpty()).filter { it.isNotEmpty() }.joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
+fun <T> TileRow(items: List<T>, columns: Int = TILE_COLUMNS, tile: @Composable (T, Modifier) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        for (item in items) tile(item, Modifier.weight(1f))
+        repeat(columns - items.size) { Spacer(Modifier.weight(1f).width(0.dp)) }
     }
 }
 
 @Composable
-fun ArtistRow(artists: List<Artist>, onOpen: (Artist) -> Unit) {
-    LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
-        items(artists, key = { it.id }) { artist ->
-            Column(
-                Modifier.clip(RoundedCornerShape(24.dp)).clickable { onOpen(artist) }.padding(4.dp).width(ARTIST_SIDE),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Cover(artist.cover(200), ARTIST_SIDE, CircleShape, "person")
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    artist.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-    }
+fun AlbumTile(album: Album, modifier: Modifier, artist: Boolean = false, onOpen: (Album) -> Unit) {
+    val year = album.year.takeIf { it > 0 }?.toString().orEmpty()
+    val subtitle = if (artist) listOf(album.artists, year) else listOf(year, album.kind)
+    MediaTile(album.cover(400), album.title, { onOpen(album) }, modifier, subtitle = subtitle.filter { it.isNotEmpty() }.joinToString(" · "))
 }
 
-private val ALBUM_SIDE = 148.dp
-private val ARTIST_SIDE = 104.dp
+@Composable
+fun ArtistTile(artist: Artist, modifier: Modifier, onOpen: (Artist) -> Unit) {
+    MediaTile(artist.cover(400), artist.name, { onOpen(artist) }, modifier, round = true, placeholder = "person")
+}
+
+const val TILE_COLUMNS = 2

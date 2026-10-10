@@ -125,6 +125,17 @@ class YandexApi(private val http: OkHttpClient) {
             tracks = found.tracks.results.map { it.toTrack() },
             albums = found.albums.results.map { it.toAlbum() },
             artists = found.artists.results.map { it.toArtist() },
+            best = found.best?.let { best ->
+                val item = best.result ?: return@let null
+                runCatching {
+                    when (best.type) {
+                        "track" -> Best(track = json.decodeFromJsonElement(TrackDto.serializer(), item).toTrack())
+                        "album" -> Best(album = json.decodeFromJsonElement(AlbumDto.serializer(), item).toAlbum())
+                        "artist" -> Best(artist = json.decodeFromJsonElement(ArtistDto.serializer(), item).toArtist())
+                        else -> null
+                    }
+                }.getOrNull()
+            },
         )
     }
 

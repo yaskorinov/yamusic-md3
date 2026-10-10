@@ -35,20 +35,49 @@ class Settings(context: Context) {
     private fun bool(key: String, default: Boolean) =
         Pref(prefs, key, default, { k, d -> getBoolean(k, d) }, { k, v -> putBoolean(k, v) })
 
+    private fun float(key: String, default: Float) =
+        Pref(prefs, key, default, { k, d -> getFloat(k, d) }, { k, v -> putFloat(k, v) })
+
     private fun int(key: String, default: Int) =
         Pref(prefs, key, default, { k, d -> getInt(k, d) }, { k, v -> putInt(k, v) })
 
     /** auto — без потерь по Wi-Fi и AAC по мобильной сети; lossless | hq | nq — всегда так. */
     val quality = string("quality", "auto")
 
-    /** system | dark | light */
-    val themeMode = string("themeMode", "system")
+    // --- оформление: те же настройки и значения по умолчанию, что в десктопном клиенте ---
 
-    /** Цвета приложения — из обложки играющего трека (иначе всегда жёлтый Яндекса). */
+    /** system | dark | light */
+    val themeMode = string("themeMode", "dark")
+
+    /** Цвета приложения — из обложки играющего трека. */
     val accentFromCover = bool("accentFromCover", true)
 
-    /** Размытая обложка фоном полноэкранного плеера. */
-    val backdrop = bool("backdrop", true)
+    /** Акцентный цвет (#RRGGBB): когда ничего не играет или цвет из обложки выключен. */
+    val customSeed = string("customSeed", "#FFCC00")
+
+    /** Вариант цветовой схемы: content | tonalSpot | vibrant | expressive | fidelity | neutral | monochrome. */
+    val schemeVariant = string("schemeVariant", "content")
+
+    /** Смена цветов и фона при смене трека: wipe | ripple | dissolve | liquid. */
+    val trackTransition = string("trackTransition", "wipe")
+
+    /** Характер размытия фона из обложки: gauss | glass | palette | blobs. */
+    val backdropMode = string("backdropMode", "gauss")
+
+    /** Размытие фона полноэкранного плеера, 0..1. */
+    val nowPlayingBlur = float("nowPlayingBlur", 1f)
+
+    /** «Плавание» размытия: скорость перелива 0..1, 0 — неподвижно. */
+    val nowPlayingDrift = float("nowPlayingDrift", 0.5f)
+
+    /** Размытая обложка играющего трека за всем приложением. */
+    val ambientBackground = bool("ambientBackground", true)
+
+    /** Рамка обложки медленно вращается, пока играет музыка. */
+    val coverSpin = bool("coverSpin", true)
+
+    /** Обложка в полноэкранном плеере «дышит» в такт. */
+    val coverPulse = bool("coverPulse", true)
 
     /** Плавный переход между треками, секунды; 0 — встык, без пауз. */
     val crossfade = int("crossfade", 0)

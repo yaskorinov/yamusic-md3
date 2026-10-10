@@ -1,11 +1,14 @@
 package io.github.yaskorinov.yamusic.playback
 
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
+import android.os.Handler
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -13,7 +16,14 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.audio.AudioRendererEventListener
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
+import androidx.media3.exoplayer.mediacodec.MediaCodecAdapter
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -21,6 +31,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import io.github.yaskorinov.yamusic.App
 import io.github.yaskorinov.yamusic.MainActivity
+import java.nio.ByteBuffer
 
 /**
  * Воспроизведение живёт в сервисе: музыка играет при погашенном экране и закрытом окне, а система
@@ -41,7 +52,7 @@ class PlaybackService : MediaSessionService() {
         val dataSource = ResolvingDataSource.Factory(DefaultDataSource.Factory(this, OkHttpDataSource.Factory(app.http)), resolver)
         val mediaSources = DefaultMediaSourceFactory(dataSource)
         val audio = AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build()
-        val player = ExoPlayer.Builder(this)
+        val player = ExoPlayer.Builder(this, MeteredRenderers(this, app.levels))
             .setMediaSourceFactory(mediaSources)
             .setAudioAttributes(audio, /* handleAudioFocus = */ true)
             .setHandleAudioBecomingNoisy(true) // выдернули наушники — пауза
@@ -114,5 +125,50 @@ class PlaybackService : MediaSessionService() {
 
     private companion object {
         const val MAX_SKIPS = 3
+    }
+}
+
+/** Обычный набор декодеров, но звук по пути к динамику ещё и измеряется — см. [LevelMeter]. */
+@OptIn(UnstableApi::class)
+private class MeteredRenderers(context: Context, private val meter: LevelMeter) : DefaultRenderersFactory(context) {
+    override fun buildAudioRenderers(
+        context: Context,
+        extensionRendererMode: Int,
+        mediaCodecSelector: MediaCodecSelector,
+        enableDecoderFallback: Boolean,
+        audioSink: AudioSink,
+        eventHandler: Handler,
+        eventListener: AudioRendererEventListener,
+        out: ArrayList<Renderer>,
+    ) {
+        out.add(
+            object : MediaCodecAudioRenderer(context, codecAdapterFactory, mediaCodecSelector, enableDecoderFallback, eventHandler, eventListener, audioSink) {
+                private var seenUs = Long.MIN_VALUE
+
+                override fun processOutputBuffer(
+                    positionUs: Long,
+                    elapsedRealtimeUs: Long,
+                    codec: MediaCodecAdapter?,
+                    buffer: ByteBuffer?,
+                    bufferIndex: Int,
+                    bufferFlags: Int,
+                    sampleCount: Int,
+                    bufferPresentationTimeUs: Long,
+                    isDecodeOnlyBuffer: Boolean,
+                    isLastBuffer: Boolean,
+                    format: Format,
+                ): Boolean {
+                    // один и тот же буфер приходит повторно, пока его не примет звуковой выход
+                    if (buffer != null && !isDecodeOnlyBuffer && bufferPresentationTimeUs != seenUs) {
+                        seenUs = bufferPresentationTimeUs
+                        meter.push(buffer, format.sampleRate, format.channelCount, (bufferPresentationTimeUs - positionUs) / 1000)
+                    }
+                    return super.processOutputBuffer(
+                        positionUs, elapsedRealtimeUs, codec, buffer, bufferIndex, bufferFlags, sampleCount,
+                        bufferPresentationTimeUs, isDecodeOnlyBuffer, isLastBuffer, format,
+                    )
+                }
+            },
+        )
     }
 }

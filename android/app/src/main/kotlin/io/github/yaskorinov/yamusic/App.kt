@@ -18,6 +18,7 @@ import io.github.yaskorinov.yamusic.data.Settings
 import io.github.yaskorinov.yamusic.data.TokenStore
 import io.github.yaskorinov.yamusic.data.Wave
 import io.github.yaskorinov.yamusic.lyrics.LyricsStore
+import io.github.yaskorinov.yamusic.playback.LevelMeter
 import io.github.yaskorinov.yamusic.playback.PlaybackTracker
 import io.github.yaskorinov.yamusic.playback.PlayerConnection
 import java.util.concurrent.TimeUnit
@@ -44,6 +45,7 @@ class App : Application(), SingletonImageLoader.Factory {
     val wave by lazy { Wave(scope, api, session, settings, player) { tracker } }
     val catalog by lazy { Catalog(scope, api) }
     val lyrics by lazy { LyricsStore(scope, api, http, this) }
+    val levels = LevelMeter()
 
     /** Плеер в сервисе воспроизведения; null, пока сервис не запущен. */
     var tracker: PlaybackTracker? = null

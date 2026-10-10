@@ -22,12 +22,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LoadingIndicator
-import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -53,7 +51,7 @@ fun LoginScreen(state: AuthState, session: Session) {
             verticalArrangement = Arrangement.Center,
         ) {
             Box(
-                Modifier.size(132.dp).background(MaterialTheme.colorScheme.primary, MaterialShapes.Cookie9Sided.toShape()),
+                Modifier.size(132.dp).background(MaterialTheme.colorScheme.primary, Shapes.Cookie9.shape),
                 contentAlignment = Alignment.Center,
             ) {
                 Symbol("play_arrow", size = 64.dp, filled = true, tint = MaterialTheme.colorScheme.onPrimary)

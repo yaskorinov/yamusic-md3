@@ -11,6 +11,7 @@ data class Album(
     /** «Альбом», «Сингл», «EP», «Сборник»… */
     val kind: String,
     val coverUri: String,
+    val artistRefs: List<ArtistRef> = emptyList(),
 ) {
     fun cover(side: Int = 300): String = coverUrl(coverUri, side)
 }
@@ -23,7 +24,10 @@ class AlbumPage(val album: Album, val tracks: List<Track>)
 
 class ArtistPage(val artist: Artist, val popular: List<Track>, val albums: List<Album>)
 
-class SearchResult(val tracks: List<Track>, val albums: List<Album>, val artists: List<Artist>) {
+/** Лучший результат поиска: ровно одно из полей задано. */
+class Best(val track: Track? = null, val album: Album? = null, val artist: Artist? = null)
+
+class SearchResult(val tracks: List<Track>, val albums: List<Album>, val artists: List<Artist>, val best: Best? = null) {
     val empty: Boolean get() = tracks.isEmpty() && albums.isEmpty() && artists.isEmpty()
 }
 
@@ -40,6 +44,7 @@ fun AlbumDto.toAlbum(): Album {
         year = year,
         kind = kind,
         coverUri = coverUri.ifEmpty { ogImage },
+        artistRefs = artists.filter { it.id.isNotEmpty() && it.name.isNotEmpty() }.map { ArtistRef(it.id, it.name) },
     )
 }
 

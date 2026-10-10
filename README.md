@@ -45,7 +45,7 @@ uv run yamusic --gallery  # галерея компонентов MD3
 
 В каталоге `android/` — отдельный нативный клиент (Kotlin, Jetpack Compose, Media3) с тем же дизайном:
 волна, коллекция, поиск, тексты песен, фон из обложки, плавный переход, скачивание для игры без сети.
-Нужны JDK 21 и Android SDK; телефон — Android 12 и новее.
+Нужны JDK 21 и Android SDK; телефон — Android 13 и новее.
 
 ```bash
 cd android && ./gradlew :app:assembleDebug

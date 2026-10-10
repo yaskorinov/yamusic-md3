@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "io.github.yaskorinov.yamusic"
-        minSdk = 31
+        minSdk = 33
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
