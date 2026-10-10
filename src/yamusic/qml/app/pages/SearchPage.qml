@@ -192,6 +192,7 @@ Page {
                     current: model.trackId === Player.trackId
                     onActivated: Player.playFrom(Catalog.searchTracks, index)
                     onLikeClicked: Library.toggleLike(Catalog.searchTracks.get(index))
+                    track: Catalog.searchTracks.get(index)
                 }
             }
         }

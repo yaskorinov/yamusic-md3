@@ -1,0 +1,22 @@
+[package]
+name = "ym-services"
+description = "Сервисы приложения на tokio: вход, библиотека, каталог, волна, тексты, учёт прослушиваний"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ym-api.workspace = true
+ym-player.workspace = true
+ym-lyrics.workspace = true
+ym-platform.workspace = true
+tokio.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+chrono.workspace = true

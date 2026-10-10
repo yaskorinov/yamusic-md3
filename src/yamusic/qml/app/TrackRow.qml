@@ -22,11 +22,28 @@ Item {
     property bool liked: false
     property bool current: false       // играет сейчас (этап 4)
     property bool wide: width > 720
+    property var track: null           // полный словарь трека для меню; без него — собирается из полей
+    property bool highlighted: false   // вспышка «перейти к треку»
 
     signal activated()                 // клик — воспроизвести
     signal likeClicked()               // клик по сердцу
 
     implicitHeight: 64
+
+    function trackData() {
+        if (track)
+            return track
+        return {
+            trackId: trackId, albumId: albumId, title: title, version: version, artists: artists,
+            artistRefs: artistRefs ?? [], album: album, cover: cover, durationMs: durationMs,
+            explicit: explicit, available: available
+        }
+    }
+
+    function openMenu(item, x, y) {
+        const p = item.mapToItem(null, x, y)
+        Catalog.requestTrackMenu(trackData(), p.x, p.y)
+    }
 
     function _time(ms) {
         const s = Math.round(ms / 1000)
@@ -37,6 +54,20 @@ Item {
         anchors.fill: parent
         radius: Theme.shape.large
         color: root.current ? Qt.alpha(Theme.primary, 0.12) : "transparent"
+    }
+
+    Rectangle {
+        id: flash
+        anchors.fill: parent
+        radius: Theme.shape.large
+        color: Theme.primary
+        opacity: 0
+        SequentialAnimation {
+            running: root.highlighted
+            loops: 2
+            NumberAnimation { target: flash; property: "opacity"; to: 0.18; duration: Theme.motion.effectsDefault }
+            NumberAnimation { target: flash; property: "opacity"; to: 0; duration: Theme.motion.effectsDefault * 2 }
+        }
     }
 
     RowLayout {
@@ -141,6 +172,20 @@ Item {
             }
         }
 
+        Item {
+            implicitWidth: 32
+            implicitHeight: 32
+            IconButton {
+                id: moreButton
+                anchors.fill: parent
+                icon: "more_horiz"
+                size: "xs"
+                opacity: rowHover.hovered || pressed ? 1 : 0
+                visible: opacity > 0
+                onClicked: root.openMenu(moreButton, 0, moreButton.height)
+            }
+        }
+
         Label {
             Layout.preferredWidth: 44
             text: root._time(root.durationMs)
@@ -151,6 +196,11 @@ Item {
     }
 
     HoverHandler { id: rowHover }
+
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        onTapped: (point) => root.openMenu(root, point.position.x, point.position.y)
+    }
 
     // Под содержимым: клики по сердцу достаются ему, по остальной строке — сюда
     StateLayer {

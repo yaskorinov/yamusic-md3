@@ -1,0 +1,24 @@
+[package]
+name = "ym-player"
+description = "Движок воспроизведения на libmpv: очередь, gapless, плавный переход, сессия"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ym-api.workspace = true
+libloading.workspace = true
+tokio.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+sha1.workspace = true
+hex.workspace = true
+fastrand.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

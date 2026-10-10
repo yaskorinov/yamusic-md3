@@ -30,6 +30,32 @@ Item {
     property string searchText
     readonly property var shownModel: model ? filter : null   // то, что в списке: всё или найденное
 
+    // Прокрутить к треку и мигнуть им, когда список загрузится (один раз)
+    property string highlightTrackId
+    property string _flashId
+    function _revealTrack() {
+        if (highlightTrackId === "" || !shownModel || shownModel.count === 0)
+            return
+        for (let i = 0; i < shownModel.count; ++i) {
+            if (shownModel.get(i).trackId === highlightTrackId) {
+                list.userScrolled = true
+                list.positionViewAtIndex(i, ListView.Center)
+                _flashId = highlightTrackId
+                highlightTrackId = ""
+                flashReset.restart()
+                return
+            }
+        }
+    }
+    onHighlightTrackIdChanged: Qt.callLater(_revealTrack)
+    Connections {
+        target: page.shownModel
+        ignoreUnknownSignals: true
+        function onCountChanged() { Qt.callLater(page._revealTrack) }
+        function onModelReset() { Qt.callLater(page._revealTrack) }
+    }
+    Timer { id: flashReset; interval: 1600; onTriggered: page._flashId = "" }
+
     // Ctrl+F: открыть поиск по списку. false — искать тут нечего или поле уже в фокусе
     // (тогда повторный Ctrl+F уходит в общий поиск).
     function findInPage() {
@@ -271,6 +297,8 @@ Item {
             available: model.available
             liked: Library.likesRevision >= 0 && Library.isLiked(model.trackId)
             current: model.trackId === Player.trackId
+            highlighted: page._flashId !== "" && model.trackId === page._flashId
+            track: page.shownModel.get(index)
             onActivated: {
                 page.trackActivated(index)
                 Player.playFrom(page.shownModel, index)

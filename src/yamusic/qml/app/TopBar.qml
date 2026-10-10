@@ -16,10 +16,17 @@ Item {
     readonly property var page: router.currentItem
     readonly property bool showTitle: page && (page.scrolled || !page.showHeader) && (page.title ?? "") !== ""
 
+    // Перетаскивание окна. Windows: startSystemMove работает, когда у окна есть системное меню
+    // (его возвращает нативная рамка оболочки). Если система отказала — двигаем окно сами.
     DragHandler {
+        property bool manual: false
         target: null
         grabPermissions: PointerHandler.TakeOverForbidden
-        onActiveChanged: if (active) root.window.startSystemMove()
+        onActiveChanged: if (active) manual = !root.window.startSystemMove()
+        onCentroidChanged: if (active && manual && root.window.visibility === Window.Windowed) {
+            root.window.x += centroid.scenePosition.x - centroid.scenePressPosition.x
+            root.window.y += centroid.scenePosition.y - centroid.scenePressPosition.y
+        }
     }
     TapHandler {
         acceptedButtons: Qt.LeftButton

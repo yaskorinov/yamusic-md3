@@ -14,7 +14,8 @@ from . import tokens
 from .aio import AsyncRunner
 from .api import make_client
 
-DEVICE_NAME = "YaMusic (Linux)"
+_PLATFORM_NAMES = {"linux": "Linux", "win32": "Windows", "darwin": "macOS"}
+DEVICE_NAME = "YaMusic (" + _PLATFORM_NAMES.get(__import__("sys").platform, "Desktop") + ")"
 
 
 class Auth(QObject):

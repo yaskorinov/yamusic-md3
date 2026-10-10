@@ -1,0 +1,81 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/ym-api",
+    "crates/ym-player",
+    "crates/ym-theme",
+    "crates/ym-lyrics",
+    "crates/ym-services",
+    "crates/ym-platform",
+    "crates/yamusic",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "MIT"
+
+[workspace.dependencies]
+# внутренние
+ym-api = { path = "crates/ym-api" }
+ym-player = { path = "crates/ym-player" }
+ym-theme = { path = "crates/ym-theme" }
+ym-lyrics = { path = "crates/ym-lyrics" }
+ym-services = { path = "crates/ym-services" }
+ym-platform = { path = "crates/ym-platform" }
+
+# асинхронность и сеть
+tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util"] }
+futures = "0.3.34"
+reqwest = { version = "0.12.24", default-features = false, features = ["rustls-tls", "json", "gzip", "http2"] }
+
+# данные
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.152"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+uuid = { version = "1.28", features = ["v4"] }
+fastrand = "2.3"
+regex = "1.13"
+unicode-normalization = "0.1.25"
+
+# ошибки и логи
+thiserror = "2.0.21"
+anyhow = "1.0.104"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+
+# крипто/хэши (подписи API, NetEase, ключи кэша)
+hmac = "0.12.1"
+sha1 = "0.10.6"
+sha2 = "0.10.9"
+md-5 = "0.10.6"
+aes = "0.8.4"
+ecb = { version = "0.1.2", features = ["alloc"] }
+base64 = "0.22.1"
+hex = "0.4.3"
+
+# плеер и тема
+libloading = "0.8.9"
+libc = "0.2.177"
+material-colors = "0.5.0"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
+
+# платформа
+dirs = "6.0.0"
+keyring = { version = "3.6.3", features = ["windows-native", "apple-native"] }
+secret-service = { version = "5.2.0", features = ["rt-tokio-crypto-rust"] }
+zbus = { version = "5.12", default-features = false, features = ["tokio"] }
+winreg = "0.55.0"
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_Security"] }
+
+# Qt
+cxx = "1.0.204"
+cxx-qt = "0.10.0"
+cxx-qt-lib = { version = "0.10.0", features = ["qt_gui", "qt_qml", "serde"] }
+cxx-qt-build = "0.10.0"
+clap = { version = "4.6", features = ["derive"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
