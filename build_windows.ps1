@@ -1,24 +1,29 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Сборка YaMusic для Windows: устанавливает зависимости и собирает standalone-пакет через PyInstaller.
+    Сборка YaMusic для Windows: зависимости, PyInstaller-пакет и Inno Setup инсталлер.
 
 .DESCRIPTION
     Что делает скрипт:
     1. Проверяет наличие uv (менеджер Python-окружений).
-    2. Находит или скачивает libmpv / mpv-2.dll (нужна для python-mpv).
+    2. Находит или скачивает libmpv-2.dll (нужна для python-mpv).
     3. Создаёт виртуальное окружение с Python 3.14 и ставит все зависимости.
     4. Запускает PyInstaller → dist\yamusic\ (папка с exe и всем нужным).
+    5. Собирает инсталлер через Inno Setup → dist\YaMusic-Setup.exe.
 
 .PARAMETER SkipMpv
-    Пропустить поиск/скачивание mpv-2.dll (если DLL уже лежит в корне проекта).
+    Пропустить поиск/скачивание libmpv-2.dll (если DLL уже лежит в корне проекта).
 
 .PARAMETER DevOnly
-    Только установить зависимости, без сборки PyInstaller (для запуска через `uv run yamusic`).
+    Только установить зависимости, без сборки PyInstaller и инсталлера.
+
+.PARAMETER SkipInstaller
+    Пропустить шаг Inno Setup (только PyInstaller).
 #>
 param(
     [switch]$SkipMpv,
-    [switch]$DevOnly
+    [switch]$DevOnly,
+    [switch]$SkipInstaller
 )
 
 Set-StrictMode -Version Latest
@@ -236,6 +241,58 @@ if ($MpvDll -and (Test-Path $MpvDll)) {
     }
 }
 
-Write-Host "`n✓ Готово! Результат: $distDir" -ForegroundColor Green
-Write-Host "  Запускайте: $distDir\yamusic.exe" -ForegroundColor White
-Write-Host "  Папку dist\yamusic\ можно заархивировать и распространять." -ForegroundColor Gray
+if ($SkipInstaller) {
+    Write-Host "`n✓ PyInstaller готов: $distDir" -ForegroundColor Green
+    Write-Host "  --SkipInstaller: шаг Inno Setup пропущен." -ForegroundColor Gray
+    exit 0
+}
+
+# ─── 9. Находим / устанавливаем Inno Setup ────────────────────────────────────
+Write-Step "Поиск Inno Setup"
+$iscc = $null
+foreach ($candidate in @(
+    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+    "C:\Program Files\Inno Setup 6\ISCC.exe",
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+    (Get-Command ISCC -ErrorAction SilentlyContinue)?.Source
+)) {
+    if ($candidate -and (Test-Path $candidate)) { $iscc = $candidate; break }
+}
+
+if (-not $iscc) {
+    Write-Warn "Inno Setup не найден, устанавливаем через winget..."
+    try {
+        winget install -e --id JRSoftware.InnoSetup --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+    } catch {}
+    $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+    if (-not (Test-Path $iscc)) { $iscc = "C:\Program Files\Inno Setup 6\ISCC.exe" }
+}
+
+if (-not (Test-Path $iscc)) {
+    Write-Warn "Не удалось найти ISCC.exe после установки."
+    Write-Warn "Установите Inno Setup вручную: winget install JRSoftware.InnoSetup"
+    Write-Host "`n✓ PyInstaller готов: $distDir" -ForegroundColor Yellow
+    exit 0
+}
+Write-Ok "ISCC: $iscc"
+
+# ─── 10. Сборка инсталлера ────────────────────────────────────────────────────
+Write-Step "Сборка инсталлера Inno Setup"
+Push-Location $ProjectRoot
+try {
+    & $iscc "yamusic.iss"
+    if ($LASTEXITCODE -ne 0) { Abort "Inno Setup завершился с ошибкой $LASTEXITCODE" }
+} finally {
+    Pop-Location
+}
+
+$setupExe = Join-Path $ProjectRoot "dist\YaMusic-Setup.exe"
+if (-not (Test-Path $setupExe)) {
+    Abort "YaMusic-Setup.exe не найден после сборки."
+}
+$sizeMB = [math]::Round((Get-Item $setupExe).Length / 1MB, 0)
+Write-Ok "Инсталлер готов: $setupExe ($sizeMB МБ)"
+
+Write-Host "`n✓ Всё готово!" -ForegroundColor Green
+Write-Host "  Инсталлер:  dist\YaMusic-Setup.exe  ($sizeMB МБ)" -ForegroundColor White
+Write-Host "  Portable:   dist\yamusic\yamusic.exe" -ForegroundColor White
