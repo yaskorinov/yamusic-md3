@@ -15,8 +15,31 @@ fun trackUri(id: String): Uri = Uri.Builder().scheme(SCHEME).authority("track").
 /** Идентификатор трека из «yamusic://track/<id>», для остальных адресов — null. */
 fun trackIdOf(uri: Uri): String? = if (uri.scheme == SCHEME) uri.lastPathSegment else null
 
-fun Track.toMediaItem(): MediaItem {
+/** Откуда играет трек: это нужно учёту прослушиваний ([from], [playlistId]) и волне. */
+data class PlayContext(val from: String, val playlistId: String = "", val wave: Boolean = false) {
+    companion object {
+        // Метки источника — как у десктопного клиента: с ними учёт прослушиваний проверен
+        val Liked = PlayContext("desktop_win-own_tracks-track-default")
+        val Wave = PlayContext("desktop_win-radio-user-onyourwave-default", wave = true)
+
+        fun playlist(id: String) = PlayContext("desktop_win-playlist-track-default", playlistId = id)
+    }
+}
+
+fun MediaItem.playContext(): PlayContext {
+    val extras = mediaMetadata.extras
+    return PlayContext(
+        from = extras?.getString("from") ?: PlayContext.Liked.from,
+        playlistId = extras?.getString("playlistId").orEmpty(),
+        wave = extras?.getBoolean("wave") ?: false,
+    )
+}
+
+fun Track.toMediaItem(context: PlayContext): MediaItem {
     val extras = Bundle().apply {
+        putString("from", context.from)
+        putString("playlistId", context.playlistId)
+        putBoolean("wave", context.wave)
         putString("albumId", albumId)
         putString("version", version)
         putString("coverUri", coverUri)

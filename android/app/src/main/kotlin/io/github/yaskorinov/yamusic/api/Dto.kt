@@ -100,3 +100,39 @@ class DownloadInfoDto(
     val urls: List<String> = emptyList(),
     val url: String = "",
 )
+
+// --- плейлисты ---------------------------------------------------------------
+
+@Serializable
+class PlaylistDto(
+    @Serializable(with = IdSerializer::class) val uid: String = "",
+    @Serializable(with = IdSerializer::class) val kind: String = "",
+    val title: String = "",
+    val trackCount: Int = 0,
+    val cover: PlaylistCoverDto = PlaylistCoverDto(),
+    val ogImage: String = "",
+    val owner: OwnerDto = OwnerDto(),
+    val tracks: List<PlaylistItemDto> = emptyList(),
+)
+
+@Serializable
+class PlaylistCoverDto(val uri: String = "", val itemsUri: List<String> = emptyList())
+
+@Serializable
+class OwnerDto(@Serializable(with = IdSerializer::class) val uid: String = "", val name: String = "", val login: String = "")
+
+@Serializable
+class PlaylistItemDto(@Serializable(with = IdSerializer::class) val id: String, val track: TrackDto? = null)
+
+// --- волна -------------------------------------------------------------------
+
+@Serializable
+class RotorDto(
+    val radioSessionId: String = "",
+    val batchId: String = "",
+    val sequence: List<RotorItemDto> = emptyList(),
+    val unknownSession: Boolean = false,
+)
+
+@Serializable
+class RotorItemDto(val track: TrackDto? = null)

@@ -13,12 +13,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
@@ -29,9 +27,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -42,48 +37,48 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import io.github.yaskorinov.yamusic.api.Track
-import io.github.yaskorinov.yamusic.data.Library
-import io.github.yaskorinov.yamusic.data.Session
+import io.github.yaskorinov.yamusic.data.TrackList
+import io.github.yaskorinov.yamusic.playback.PlayContext
 import io.github.yaskorinov.yamusic.playback.PlayerConnection
 import io.github.yaskorinov.yamusic.playback.PlayerState
 
-/** «Мне нравится»: шапка с кнопками и список треков. [bottomPadding] — место под мини-плеер. */
+/** Список треков (плейлист или «Мне нравится»): шапка с кнопками и строки. */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun LikedScreen(
-    library: Library,
-    session: Session,
+fun TrackListScreen(
+    title: String,
+    list: TrackList,
+    context: PlayContext,
     player: PlayerConnection,
     playerState: PlayerState,
-    bottomPadding: Dp,
+    contentPadding: PaddingValues,
+    onRetry: () -> Unit,
+    onBack: () -> Unit,
 ) {
-    val tracks by library.liked.collectAsStateWithLifecycle()
-    val loading by library.loading.collectAsStateWithLifecycle()
-    val error by library.error.collectAsStateWithLifecycle()
+    val tracks by list.tracks.collectAsStateWithLifecycle()
+    val loading by list.loading.collectAsStateWithLifecycle()
+    val error by list.error.collectAsStateWithLifecycle()
 
-    LazyColumn(
-        Modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = PaddingValues(bottom = bottomPadding),
-    ) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = contentPadding) {
         item(key = "header") {
             Header(
+                title = title,
                 count = tracks.size,
                 loading = loading,
-                onPlay = { player.play(tracks, 0) },
-                onShuffle = { if (tracks.isNotEmpty()) player.play(tracks, tracks.indices.random(), shuffle = true) },
-                onSignOut = session::signOut,
+                onBack = onBack,
+                onPlay = { player.play(tracks, 0, context) },
+                onShuffle = { if (tracks.isNotEmpty()) player.play(tracks, tracks.indices.random(), context, shuffle = true) },
             )
         }
         if (error.isNotEmpty()) {
             item(key = "error") {
                 Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-                    TextButton(onClick = library::refresh) { Text("Повторить") }
+                    TextButton(onClick = onRetry) { Text("Повторить") }
                 }
             }
         }
@@ -91,7 +86,7 @@ fun LikedScreen(
             TrackRow(
                 track = track,
                 current = track.id == playerState.track?.id,
-                onClick = { player.play(tracks, index) },
+                onClick = { player.play(tracks, index, context) },
             )
         }
         if (loading) {
@@ -105,47 +100,36 @@ fun LikedScreen(
 }
 
 @Composable
-private fun Header(count: Int, loading: Boolean, onPlay: () -> Unit, onShuffle: () -> Unit, onSignOut: () -> Unit) {
-    var confirmSignOut by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Мне нравится", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold)
-                Text(
-                    if (count == 0 && loading) "Загружаем…" else tracksCount(count),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+private fun Header(title: String, count: Int, loading: Boolean, onBack: () -> Unit, onPlay: () -> Unit, onShuffle: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(start = 8.dp, end = 20.dp, top = 4.dp, bottom = 12.dp)) {
+        IconButton(onClick = onBack) { Symbol("arrow_back") }
+        Column(Modifier.padding(start = 12.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                if (count == 0 && loading) "Загружаем…" else tracksCount(count),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onPlay, enabled = count > 0, modifier = Modifier.weight(1f).height(56.dp)) {
+                    Symbol("play_arrow", filled = true)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Слушать")
+                }
+                FilledTonalButton(onClick = onShuffle, enabled = count > 0, modifier = Modifier.weight(1f).height(56.dp)) {
+                    Symbol("shuffle")
+                    Spacer(Modifier.width(8.dp))
+                    Text("Перемешать")
+                }
             }
-            IconButton(onClick = { confirmSignOut = true }) { Symbol("logout") }
         }
-        Spacer(Modifier.height(16.dp))
-        Row(Modifier.padding(end = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onPlay, enabled = count > 0, modifier = Modifier.weight(1f).height(56.dp)) {
-                Symbol("play_arrow", filled = true)
-                Spacer(Modifier.width(8.dp))
-                Text("Слушать")
-            }
-            FilledTonalButton(onClick = onShuffle, enabled = count > 0, modifier = Modifier.weight(1f).height(56.dp)) {
-                Symbol("shuffle")
-                Spacer(Modifier.width(8.dp))
-                Text("Перемешать")
-            }
-        }
-    }
-    if (confirmSignOut) {
-        AlertDialog(
-            onDismissRequest = { confirmSignOut = false },
-            title = { Text("Выйти из аккаунта?") },
-            text = { Text("Токен будет удалён с этого телефона.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmSignOut = false
-                    onSignOut()
-                }) { Text("Выйти") }
-            },
-            dismissButton = { TextButton(onClick = { confirmSignOut = false }) { Text("Отмена") } },
-        )
     }
 }
 
@@ -204,7 +188,7 @@ fun formatTime(ms: Long): String {
     return "%d:%02d".format(seconds / 60, seconds % 60)
 }
 
-private fun tracksCount(n: Int): String {
+fun tracksCount(n: Int): String {
     val word = when {
         n % 100 in 11..14 -> "треков"
         n % 10 == 1 -> "трек"

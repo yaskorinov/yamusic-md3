@@ -43,6 +43,7 @@ class PlaybackService : MediaSessionService() {
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
         player.addListener(Recovery(player))
+        app.tracker = PlaybackTracker(player, listOf(app.reporter, app.wave))
 
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
@@ -60,6 +61,9 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        val app = application as App
+        app.tracker?.release()
+        app.tracker = null
         session?.run {
             player.release()
             release()

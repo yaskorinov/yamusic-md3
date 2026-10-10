@@ -151,6 +151,12 @@ fun NowPlaying(state: PlayerState, player: PlayerConnection, library: Library, o
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                IconButton(onClick = {
+                    library.dislike(track)
+                    player.next()
+                }) {
+                    Symbol("thumb_down", tint = colors.onSurfaceVariant)
+                }
                 IconButton(onClick = { library.toggleLike(track) }) {
                     Symbol("favorite", size = 28.dp, filled = liked, tint = if (liked) colors.primary else colors.onSurfaceVariant)
                 }

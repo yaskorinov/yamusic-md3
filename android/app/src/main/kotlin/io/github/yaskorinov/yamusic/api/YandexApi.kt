@@ -2,6 +2,8 @@ package io.github.yaskorinov.yamusic.api
 
 import java.io.IOException
 import java.security.SecureRandom
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.Base64
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -15,16 +17,21 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 
 /** Ошибка API: [status] — код HTTP, [code] — имя ошибки из ответа ('authorization_pending', 'session-expired'…). */
@@ -94,7 +101,94 @@ class YandexApi(private val http: OkHttpClient) {
         call(JsonElement.serializer(), request("/users/$uid/likes/tracks/$action", form = mapOf("track-ids" to fullId)))
     }
 
+    suspend fun setDisliked(uid: String, fullId: String) {
+        call(JsonElement.serializer(), request("/users/$uid/dislikes/tracks/add-multiple", form = mapOf("track-ids" to fullId)))
+    }
+
+    suspend fun playlists(uid: String): List<Playlist> =
+        call(ListSerializer(PlaylistDto.serializer()), request("/users/$uid/playlists/list")).map { it.toPlaylist() }
+
+    suspend fun playlistTracks(uid: String, kind: String): List<Track> {
+        val items = call(PlaylistDto.serializer(), request("/users/$uid/playlists/$kind")).tracks
+        // Обычно треки приходят целиком; каких нет — дозапрашиваем порциями, сохраняя порядок
+        val missing = items.filter { it.track == null }.map { it.id }
+        val fetched = missing.chunked(CHUNK).flatMap { tracks(it) }.associateBy { it.id }
+        return items.mapNotNull { it.track?.toTrack() ?: fetched[it.id] }
+    }
+
+    // --- «Моя волна» (rotor) --------------------------------------------------------
+
+    /** Группы настроек волны; чего API не прислал, остаётся из запасного списка. */
+    suspend fun waveSettings(): List<WaveGroup> =
+        waveGroups(call(JsonObject.serializer(), request("/rotor/wave/settings", mapOf("seeds" to WAVE_SEED))))
+
+    /** Новая сессия по сидам. [queue] — недавние треки ('id:albumId'), чтобы волна их не повторяла. */
+    suspend fun rotorSessionNew(seeds: List<String>, queue: List<String>): RotorBatch {
+        val body = buildJsonObject {
+            put("seeds", JsonArray(seeds.map { JsonPrimitive(it) }))
+            if (queue.isNotEmpty()) put("queue", JsonArray(queue.map { JsonPrimitive(it) }))
+            put("includeTracksInResponse", true)
+        }
+        return call(RotorDto.serializer(), request("/rotor/session/new", body = body)).toBatch()
+    }
+
+    /** Следующая партия; [RotorBatch.unknownSession] — сессия протухла, нужна новая. */
+    suspend fun rotorSessionTracks(sessionId: String, queue: List<String>): RotorBatch {
+        val body = buildJsonObject { put("queue", JsonArray(queue.map { JsonPrimitive(it) })) }
+        return call(RotorDto.serializer(), request("/rotor/session/$sessionId/tracks", body = body)).toBatch()
+    }
+
+    /** Обратная связь волне: radioStarted, trackStarted, trackFinished, skip, like, unlike, dislike. */
+    suspend fun rotorFeedback(
+        sessionId: String,
+        type: String,
+        batchId: String,
+        trackId: String? = null,
+        playedSeconds: Double? = null,
+        from: String? = null,
+    ) {
+        val body = buildJsonObject {
+            put("event", buildJsonObject {
+                put("type", type)
+                put("timestamp", Instant.now().truncatedTo(ChronoUnit.MILLIS).toString())
+                trackId?.let { put("trackId", it) }
+                playedSeconds?.let { put("totalPlayedSeconds", it) }
+            })
+            put("batchId", batchId)
+            from?.let { put("from", it) }
+        }
+        call(JsonElement.serializer(), request("/rotor/session/$sessionId/feedback", body = body))
+    }
+
     // --- воспроизведение ----------------------------------------------------------
+
+    /** Учёт прослушивания: по нему Яндекс строит историю, рекомендации и «Мою волну». */
+    suspend fun playAudio(
+        uid: String,
+        track: Track,
+        from: String,
+        playlistId: String,
+        playId: String,
+        playedSeconds: Double,
+        endSeconds: Double,
+    ) {
+        val now = Instant.now().truncatedTo(ChronoUnit.MILLIS).toString()
+        val form = buildMap {
+            put("track-id", track.id)
+            put("from-cache", "False")
+            put("from", from)
+            put("play-id", playId)
+            put("uid", uid)
+            put("timestamp", now)
+            put("track-length-seconds", (track.durationMs / 1000).toString())
+            put("total-played-seconds", playedSeconds.toString())
+            put("end-position-seconds", endSeconds.toString())
+            if (track.albumId.isNotEmpty()) put("album-id", track.albumId)
+            if (playlistId.isNotEmpty()) put("playlist-id", playlistId)
+            put("client-now", now)
+        }
+        call(JsonElement.serializer(), request("/play-audio", form = form))
+    }
 
     /**
      * Прямая ссылка на файл трека. С transport=raw FLAC приходит незашифрованным.
@@ -125,6 +219,7 @@ class YandexApi(private val http: OkHttpClient) {
         path: String,
         query: Map<String, String> = emptyMap(),
         form: Map<String, String>? = null,
+        body: JsonObject? = null,
         client: String = CLIENT,
     ): Request {
         val url = (BASE_URL + path).toHttpUrl().newBuilder()
@@ -135,6 +230,7 @@ class YandexApi(private val http: OkHttpClient) {
             .header("Accept-Language", "ru")
         token?.let { request.header("Authorization", "OAuth $it") }
         form?.let { request.post(formBody(it)) }
+        body?.let { request.post(it.toString().toRequestBody(JSON)) }
         return request.build()
     }
 
@@ -214,6 +310,9 @@ class YandexApi(private val http: OkHttpClient) {
         const val SIGN_CLIENT = "YandexMusicDesktopAppWindows/5.95.0"
         const val TRANSPORT = "raw"
         val CODECS = listOf("flac", "flac-mp4", "aac-mp4", "he-aac-mp4", "aac", "he-aac", "mp3")
+
+        const val CHUNK = 200
+        val JSON = "application/json".toMediaType()
 
         const val MAX_CONCURRENT = 4
         const val RETRIES = 5 // паузы 0,8 → 12,8 с: всего до ~25 с

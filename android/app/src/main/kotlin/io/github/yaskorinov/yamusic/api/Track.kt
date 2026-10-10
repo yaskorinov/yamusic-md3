@@ -39,3 +39,33 @@ fun TrackDto.toTrack(): Track {
 }
 
 class StreamInfo(val url: String, val codec: String, val bitrate: Int)
+
+data class Playlist(
+    val uid: String,
+    val kind: String,
+    val title: String,
+    val trackCount: Int,
+    val coverUri: String,
+    val owner: String,
+) {
+    /** 'uid:kind' — так плейлист называют учёт прослушиваний и ключи списков. */
+    val id: String get() = "$uid:$kind"
+
+    fun cover(side: Int = 200): String =
+        if (coverUri.isEmpty()) "" else "https://" + coverUri.replace("%%", "${side}x$side")
+}
+
+fun PlaylistDto.toPlaylist(): Playlist = Playlist(
+    uid = uid.ifEmpty { owner.uid },
+    kind = kind,
+    title = title,
+    trackCount = trackCount,
+    coverUri = cover.uri.ifEmpty { cover.itemsUri.firstOrNull().orEmpty() }.ifEmpty { ogImage },
+    owner = owner.name.ifEmpty { owner.login },
+)
+
+/** Партия треков волны. */
+class RotorBatch(val sessionId: String, val batchId: String, val tracks: List<Track>, val unknownSession: Boolean)
+
+fun RotorDto.toBatch(): RotorBatch =
+    RotorBatch(radioSessionId, batchId, sequence.mapNotNull { it.track?.toTrack() }, unknownSession)

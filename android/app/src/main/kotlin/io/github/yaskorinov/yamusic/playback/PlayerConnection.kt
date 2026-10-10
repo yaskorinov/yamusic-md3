@@ -24,6 +24,8 @@ data class PlayerState(
     val hasPrevious: Boolean = false,
     val shuffle: Boolean = false,
     val repeat: Int = Player.REPEAT_MODE_OFF,
+    /** Играет «Моя волна». */
+    val wave: Boolean = false,
     val error: String = "",
 )
 
@@ -66,14 +68,14 @@ class PlayerConnection(private val context: Context) {
     }
 
     /** Играть список с трека [index]; недоступные треки в очередь не попадают. */
-    fun play(tracks: List<Track>, index: Int, shuffle: Boolean = false) {
+    fun play(tracks: List<Track>, index: Int, context: PlayContext, shuffle: Boolean = false) {
         val player = controller ?: return
         val start = tracks.getOrNull(index)
         val playable = tracks.filter { it.available }
         if (playable.isEmpty()) return
         val from = playable.indexOf(start).coerceAtLeast(0)
         player.shuffleModeEnabled = shuffle
-        player.setMediaItems(playable.map { it.toMediaItem() }, from, 0L)
+        player.setMediaItems(playable.map { it.toMediaItem(context) }, from, 0L)
         player.prepare()
         player.play()
     }
@@ -106,7 +108,8 @@ class PlayerConnection(private val context: Context) {
     }
 
     private fun publish(player: Player) {
-        val track = player.currentMediaItem?.toTrack()
+        val item = player.currentMediaItem
+        val track = item?.toTrack()
         _state.value = PlayerState(
             track = track,
             playing = !Util.shouldShowPlayButton(player),
@@ -116,6 +119,7 @@ class PlayerConnection(private val context: Context) {
             hasPrevious = player.hasPreviousMediaItem(),
             shuffle = player.shuffleModeEnabled,
             repeat = player.repeatMode,
+            wave = item?.playContext()?.wave ?: false,
             error = player.playerError?.let { it.cause?.message ?: it.message }.orEmpty(),
         )
     }
