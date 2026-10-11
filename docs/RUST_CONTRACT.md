@@ -1,12 +1,16 @@
 # YaMusic: контракт переписывания бэкенда на Rust (cxx-qt)
 
+> **Статус (v0.3.0):** переписывание завершено, документ описывает фактический API крейтов и QML-объектов.
+> Формулировки плана (исполнители, скелет с `todo!()`, «не трогать QML») оставлены как история решений;
+> отличия реализации от плана — в §9, дополнения после выпуска 0.2.0 — в §6–§8 и §11.
+
 Документ — единственный источник истины для 9 параллельных исполнителей. QML (`src/yamusic/qml`, 63 файла) переиспользуется
 **без изменений**: тот же модуль `YaMusic.Core 1.0`, те же имена синглтонов, свойств, сигналов, методов, ролей моделей
 и ключей словарей. Python-код (`src/yamusic/*.py`) и `android/` не трогаем — это эталоны поведения
 (`android/app/src/main/kotlin/.../api/YandexApi.kt` — компактный эталон запросов API).
 
-**Нормативный код.** Скелет рабочего пространства (`Cargo.toml`, `crates/*`) уже содержит все публичные типы и сигнатуры,
-тела — `todo!()`. Сигнатуры в скелете — часть контракта: менять их можно только расширением (новые методы/поля),
+**Нормативный код.** Скелет рабочего пространства (`Cargo.toml`, `crates/*`) содержал все публичные типы и сигнатуры
+(тела — `todo!()`; сейчас все реализованы). Сигнатуры в скелете — часть контракта: менять их можно только расширением (новые методы/поля),
 а не изменением существующих; любое отклонение — в отчёт. Поведение, которое не видно из сигнатур, описано здесь
 и в doc-комментариях скелета (они тоже нормативны).
 
@@ -309,7 +313,11 @@ pub unsafe fn tracks_from_model(*mut QObject) -> Option<(Vec<TrackItem>, PlayCon
 
 ### 4.4. ym-lyrics (lyrics)
 Порт `lyrics_sources.py` + кэш из `lyrics.py`. Формат JSON результата/кэша совместим (ключи, «gap», округление до 3 знаков).
-Ключ кэша: `sha1(f"{CACHE_VERSION}|{track_id}")` hex + `.json`. Тесты: `lines_from_lrc`, `build_from_timed_lines`,
+Ключ кэша: `sha1(f"{CACHE_VERSION}|{track_id}")` hex + `.json`; `CACHE_VERSION` = 6 (5 — версия Python-эталонов,
+для них есть `cache_file_name_v(5, id)`). LRCLIB (`sources::lrclib_fetch`): `get` + поиск по названию и исполнителю,
+при неудаче — поиск по исполнителю (`q`); `pick_lrclib` берёт синхронные записи с похожим названием (`title_like`:
+вхождение или ≤ 20 % правок) и длительностью ±3 с (иначе ±5 с) и выбирает разметку, с которой согласно больше всего
+записей (первые три метки — в пределах 0,6 с), минус её копии на версиях длиннее/короче на > 10 с. Тесты: `lines_from_lrc`, `build_from_timed_lines`,
 `parse_yrc`, `add_gaps`, `is_placeholder`, `ne_eapi_params` — против выходов Python на фикстурах (сгенерируйте их
 `.venv/Scripts/python.exe -I` из `src/yamusic/lyrics_sources.py`).
 
@@ -491,8 +499,11 @@ Invokable (поведение catalog.py):
 | rightPanelOpen | bool | `false` | |
 | rightPanelTab | string | `"queue"` | queue / lyrics |
 | sidebarCollapsed | bool | `false` | |
-| windowWidth | int | `1280` | |
+| windowWidth | int | `1280` | последний размер окна (и мини-окна) |
 | windowHeight | int | `800` | |
+| windowX | int | `-1000000` | положение; `WINDOW_POS_UNSET` — не сохранено (по центру); на Wayland не пишется |
+| windowY | int | `-1000000` | |
+| windowMaximized | bool | `false` | окно было развёрнуто |
 | quality | string | `"lossless"` | lossless / high / low |
 | volume | real | `0.7` | |
 | crossfade | int | `4` | секунды, 0 — gapless |
@@ -500,13 +511,15 @@ Invokable (поведение catalog.py):
 | closeToTray | bool | `true` | |
 | wheelStep | int | `150` | |
 
-Хранилище и совместимость — шапка `settings.rs`. Запись равного значения — без события.
+Хранилище и совместимость — шапка `settings.rs`. Запись равного значения — без события. Ключи `windowX/windowY/
+windowMaximized` добавлены в 0.3.0 (`SettingKey::ALL` — 27); отрицательные целые в реестре — DWORD в дополнительном коде.
 
 ---
 
 ## 7. Окно на Windows (shell: `cpp/winframe.*`, `winframe.rs`)
 
-QML не меняется (`flags: Qt.Window | Qt.FramelessWindowHint`, `ResizeEdges`, `TopBar` с `DragHandler → startSystemMove`).
+QML: `flags: Qt.Window | Qt.FramelessWindowHint` (+ `Qt.WindowStaysOnTopHint` при `pinnedOnTop`), `ResizeEdges`,
+`TopBar` и пустые места `Sidebar` с `DragHandler → startSystemMove`.
 После `load` оболочка ставит на корневое окно нативный фильтр (`QAbstractNativeEventFilter` на приложение, фильтр по HWND):
 1. **Стиль:** добавить `WS_THICKFRAME | WS_CAPTION | WS_MAXIMIZEBOX | WS_MINIMIZEBOX | WS_SYSMENU` (Aero Snap, Win+стрелки,
    анимации, сворачивание кликом по панели задач), затем `SetWindowPos(SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER)`.
@@ -519,14 +532,18 @@ QML не меняется (`flags: Qt.Window | Qt.FramelessWindowHint`, `ResizeE
    курсоры ставит Windows), внутри — `HTCLIENT`. Заголовок (`HTCAPTION`) **не** возвращать: перетаскивание делает TopBar
    (`startSystemMove`), а сайдбар и кнопки в той же полосе должны получать клики.
 4. Тень и скругления Win11: `DwmExtendFrameIntoClientArea(hwnd, {0, 0, 0, 1})` (dwmapi уже линкуется в build.rs).
+4а. **WM_STYLECHANGED:** Qt при смене флагов окна (например, «поверх всех окон») пересчитывает стиль и снимает
+   `WS_THICKFRAME` — фильтр возвращает нужные биты; окно (HWND, позиция, размер) не пересоздаётся.
 5. Кнопки окна видны: `Settings.windowButtons` на Windows всегда true (§6); `showMinimized`, развернуть/восстановить, `close`
    работают через QML как сейчас.
+Иконка exe — ресурс `IDI_ICON1` (`build.rs`, `embed-resource`, `yamusic.ico`); иконку окна на Windows из SVG не ставим.
+Релизная сборка — `windows_subsystem = "windows"` (без консоли). Меню трея: по активации `Context` открывается вручную.
 Проверка вручную: ресайз за все края и углы без мерцания, Aero Snap (перетаскивание к краю, Win+←/→/↑), двойной клик по
 TopBar разворачивает, развёрнутое окно не обрезано, перетаскивание по пустому месту TopBar.
 
 ---
 
-## 8. Меню трека (планируемое; бэкенд делается сейчас)
+## 8. Меню трека (реализовано в 0.2.0; окно-попап — 0.3.0)
 
 Пины **существуют** в yandex_music 3.2.1 — реализуем. Цепочка:
 - **ym-api:** `pins()`, `pin_wave(seeds)`, `unpin_wave(seeds)`, `users_playlists_create(uid, title, visibility)`,
@@ -543,6 +560,12 @@ TopBar разворачивает, развёрнутое окно не обре
 - **Существующее, которым пользуется меню:** `Wave.playStation("track:" + id, title)`, `Player.cycleRepeat()` / `Player.repeat`,
   `Catalog.openAlbum`, `Catalog.openArtists(refs)`, `Library.toggleLike`, `Library.dislike`.
 - Список своих плейлистов для подменю — `Library.playlists` (у своих `uid == Auth.account.uid`).
+- QML: `app/TrackMenu.qml` (один экземпляр в `Main.qml`) поверх `Md3/Menu.qml` — пункты `{id, text, icon, enabled,
+  checked, separator, submenu}`, сигналы `picked(index)` / `triggered(id, item)`; карточки — `T.Popup` с
+  `popupType: Popup.Window` (выходят за окно), подменю — дочерний попап карточки (на Wayland иначе не откроется).
+  В мини-режиме сверху группа `mini:shuffle`, `mini:repeat`, `mini:ontop` (если `canPin`), `mini:expand` —
+  их TrackMenu выполняет сам.
+- Сбой лайка/дизлайка — `Library.notice` вместо тихого отката (`ym-services::library`, `short_reason`).
 
 ---
 
@@ -560,8 +583,7 @@ TopBar разворачивает, развёрнутое окно не обре
    формата — чтобы не потерять настройки пользователей; токен — из тех же записей keyring.
 8. Таймаут HTTP API — 10 с вместо 5 с Python (у Python бывали обрывы на медленной сети); повторы — как в Python.
 9. Секрет-сервис на Linux — крейт `secret-service` 5 (атрибуты как в Python), а не `keyring` (у него свои атрибуты).
-10. `crates/yamusic/src/bridges/*.rs`, `main.rs`, `tests/probe.qml` сейчас — проба архитектора; bridges и shell заменяют их
-    целиком (probe.qml после этого можно удалить — shell).
+10. Проба архитектора (`tests/probe.qml`, заглушки мостов) заменена реализацией и удалена.
 
 ## 10. Готовность (критерии приёмки каждого пакета)
 - `cargo check --workspace` и `cargo clippy -p <свой> -- -D warnings` (для Qt-крейта — с переменными §0) чисто;
@@ -569,3 +591,19 @@ TopBar разворачивает, развёрнутое окно не обре
 - нет `todo!()` в своих файлах; публичные сигнатуры скелета не изменены (только дополнены);
 - shell + bridges: `yamusic.exe` загружает `src/yamusic/qml/Main.qml` без ошибок QML в консоли
   (`QT_FORCE_STDERR_LOGGING=1`), `--gallery`, `--screenshot out.png` работают; вход, лайки, плеер, волна, тексты — вручную.
+
+## 11. Свойства главного окна для компонентов (0.3.0)
+
+Не мосты, а QML (`Main.qml`), но на них опираются `MiniMode`, `TrackMenu`, `Sidebar`, `NowPlaying` (через `Window.window`):
+
+| свойство / функция | что |
+|---|---|
+| `layoutMode` | `"full"` / `"compact"` / `"mini"`; гистерезис 24 px, расширение — после 150 мс покоя |
+| `mini` | `layoutMode === "mini"` |
+| `pinnedOnTop` | «поверх всех окон» (`Qt.WindowStaysOnTopHint`), не запоминается |
+| `wayland`, `canPin` | платформа Wayland; там `canPin == false` — булавки нет, координаты окна не сохраняются |
+| `expandFromMini()` | из мини-режима к обычному размеру (последний сохранённый, не меньше 960×640) |
+| `trackMenuAction(id, track, item)` | обработчик пунктов меню трека |
+
+`NowPlaying` держит `Player.levelsWanted` и в режиме `mini` (там обложка и фон дышат в такт); `Theme.calm` не включается,
+пока окно в `mini` и `pinnedOnTop`.

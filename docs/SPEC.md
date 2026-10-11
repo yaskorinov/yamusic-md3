@@ -1,6 +1,7 @@
 # YaMusic — кастомный клиент Яндекс Музыки в стиле MD3 Expressive
 
-Нативный, лёгкий клиент для Linux (основная цель — Arch + Hyprland/Wayland).
+Нативный, лёгкий клиент для Linux (основная цель — Arch + Hyprland/Wayland) и Windows; macOS — «как получится».
+Отдельно — нативный клиент для Android (см. [ниже](#android-android)).
 Визуальный референс и разбор: [reference/DESIGN_NOTES.md](reference/DESIGN_NOTES.md).
 
 ## Стек
@@ -8,19 +9,24 @@
 | Слой | Выбор | Почему |
 |---|---|---|
 | UI | QML (Qt Quick 6.12), свой MD3-кит `Md3` | сцен-граф Qt лёгкий и плавный; Electron/WebEngine исключены |
-| Логика | Python 3.14 + PySide6-essentials | готовая библиотека `yandex-music`, быстрая разработка |
-| Цвет | `materialyoucolor` (порт material-color-utilities, spec 2025) | dynamic color из обложки |
-| Звук | libmpv через `python-mpv` | gapless, все кодеки, PipeWire |
-| API | `yandex-music` (MarshalX), неофициальный API | — |
-| Сборка | uv; позже PKGBUILD + `.desktop` | — |
+| Логика | Rust (workspace `crates/*`), мосты в QML — [cxx-qt](https://github.com/KDAB/cxx-qt) 0.10 | один нативный exe, без интерпретатора; QML прежний |
+| Цвет | `ym-theme` на `material-colors` (порт material-color-utilities) | dynamic color из обложки; сверено с `materialyoucolor` по эталонным векторам |
+| Звук | libmpv, свой минимальный FFI через `libloading` | gapless, все кодеки, PipeWire; без линковки — на Windows `libmpv-2.dll` рядом с exe |
+| API | `ym-api` — свой клиент на `reqwest` по образцу `yandex-music` (MarshalX) | неофициальный API |
+| Сборка | cargo; Linux — AppImage / `install.sh`, Windows — Inno Setup (`build_windows.ps1`) | CI и выпуски — GitHub Actions |
+
+Прежняя версия на Python 3.14 + PySide6 (`src/yamusic/*.py`, `pyproject.toml`) ещё лежит в репозитории как справка
+для поведения, но не собирается и не поставляется; описание «Структуры» ниже — про Rust.
 
 ## Решения
 
 - **Авторизация**: OAuth device code (код вводится на ya.ru/device) + ручной ввод токена. Токен — в Secret Service (keyring). Без встроенного браузера.
 - **Качество**: настройка low / high / lossless. FLAC через зашифрованный транспорт с обязательным откатом на AAC.
 - **Цвет**: всё приложение перекрашивается под обложку текущего трека (схема из доминантного цвета, плавная анимация смены). Можно зафиксировать seed-цвет. Светлая/тёмная тема.
-- **Окно**: без системного заголовка, MD3 top app bar, без кнопок окна (опция для не-тайлинговых DE).
+- **Окно**: без системного заголовка, MD3 top app bar, без кнопок окна (опция для не-тайлинговых DE; на Windows — всегда).
+  Размер, положение и «развёрнуто» запоминаются между запусками.
 - **Раскладка**: NavigationRail/сайдбар слева → контент по центру → выдвижная правая панель (очередь / текст) → плавающий мини-плеер-пилюля снизу → полноэкранный Now Playing с блоб-переходом.
+  Окно сжимается до 280×120: компактная раскладка и мини-плеер (см. [Раскладки](#раскладки-full--compact--mini)).
 - **Системные интеграции**: MPRIS (обязательно), иконка в трее (SNI).
 
 ## MVP
@@ -46,34 +52,42 @@
 6. ✅ Плейлисты / альбомы / артисты, поиск.
 7. ✅ Тексты; офлайн-кэш ← следующий.
 8. Трей ✅, установщик `install.sh` со значком и `.desktop` ✅; PKGBUILD — нет.
+9. ✅ Ядро на Rust вместо Python (QML прежний), Windows (инсталлер), CI и выпуски по тегу.
+10. ✅ Компактная раскладка и мини-плеер, меню трека, запоминание окна.
 
 ## Структура
 
 ```
+Cargo.toml             workspace (версия — [workspace.package])
+crates/
+  ym-api/              клиент API: OAuth device flow, каталог, лайки, плейлисты, rotor, get-file-info (подпись,
+                       расшифровка lossless — AES-CTR), тексты, play-audio, пины; ≤ 4 запросов разом, повтор 429/5xx
+  ym-player/           движок воспроизведения: libmpv (libloading) в своём потоке, очередь с контекстом,
+                       shuffle/repeat, плавный переход (второе ядро mpv), уровень звука, session.json
+  ym-theme/            схема MD3 из seed/обложки (варианты схем, роли), метрики значков
+  ym-lyrics/           источники текстов, разбор LRC/YRC, дисковый кэш
+  ym-services/         auth, library, catalog, wave (rotor), PlayReporter, фильтр треков — сервисы на tokio
+  ym-platform/         токен (keyring / файл), настройки (ключи и значения прежнего QSettings), каталоги,
+                       MPRIS (zbus, только Linux), один экземпляр
+  yamusic/             бинарь: main/CLI (как в app.py), engine.rs (QApplication, движок, контекстные свойства),
+    src/bridges/       QObject-синглтоны для QML: Auth, Library, Player, Wave, Catalog, Lyrics, Settings, ThemeEngine
+    src/models/        DictListModel (одна модель-список на все роли), TrackFilter
+    cpp/               register.cpp (регистрация YaMusic.Core), ym_shell.cpp (QApplication, кэш картинок, буфер
+                       обмена), winframe.cpp (рамка окна на Windows)
 src/yamusic/
-  __init__.py        точка входа (main)
-  app.py             QGuiApplication, шрифты, регистрация типов, загрузка QML
-  settings.py        Settings (QSettings → ~/.config/yamusic/YaMusic.conf), свойства из SCHEMA
-  theme.py           ThemeEngine: схема MD3 из seed/обложки, следует настройкам
-  aio.py             asyncio-цикл в фоновом потоке, колбэки — в GUI-потоке
-  auth.py            Auth: device code (ya.ru/device) / токен, состояние входа
-  tokens.py          токен: Secret Service, если есть связка по умолчанию, иначе файл 0600
-  library.py         Library: плейлисты, «Мне нравится», треки плейлистов (порциями), лайки/дизлайки
-  player.py          Player: mpv, очередь с контекстом (откуда треки), события начала/конца трека
-  wave.py            Wave: «Моя волна» — сессия rotor, настройки, обратная связь
-  history.py         PlayReporter: /play-audio (история и рекомендации)
-  mpris.py           MPRIS на dbus-fast
-  models.py          TrackListModel / PlaylistListModel (QAbstractListModel)
-  images.py          дисковый кэш картинок для QML (~/.cache/yamusic/YaMusic/images, 512 МБ)
-  icons.py           IconMetrics: оптическое центрирование глифов Material Symbols
-  assets/fonts/      Google Sans (OFL), Material Symbols Rounded (Apache 2.0)
+  assets/fonts/        Google Sans (OFL), Material Symbols Rounded (Apache 2.0) — урезанные
   qml/
-    Main.qml         главное окно: Sidebar | контент (TopBar, Router, MiniPlayer) | RightPanel
-    app/             оболочка: Router, Page, Sidebar, TopBar, MiniPlayer, RightPanel, ResizeEdges…
-    app/pages/       страницы (home, search, wave, liked, settings)
-    Md3/             модуль компонентов MD3 Expressive
-    gallery/         галерея компонентов
+    Main.qml           главное окно: Sidebar | контент (TopBar, Router, MiniPlayer) | RightPanel; MiniMode; layoutMode
+    app/               оболочка: Router, Page, Sidebar, TopBar, MiniPlayer, MiniMode, NowPlaying, RightPanel,
+                       TrackMenu, ResizeEdges…
+    app/pages/         страницы (wave, search, liked, playlist, album, artist, settings, account)
+    Md3/               модуль компонентов MD3 Expressive
+    gallery/           галерея компонентов
+  *.py                 прежняя версия на Python (справка, не собирается)
+.github/               build.yml (PR, вручную), release.yml (теги v*), scripts/install_qt.py, package_linux.sh
 ```
+
+Контракт между крейтами и с QML (имена свойств, сигналов, ключи словарей) — [RUST_CONTRACT.md](RUST_CONTRACT.md).
 
 ## MD3-кит (`import Md3`)
 
@@ -99,33 +113,37 @@ src/yamusic/
   Разделы сайдбара — `reset()` (fade through), переход вглубь — `push()` (shared axis X), `back()`.
 - **Горячие клавиши**: Ctrl+F поиск, Alt+← / кнопка мыши «назад», Ctrl+, настройки, Ctrl+B сайдбар,
   Ctrl+L текст, F11 полноэкранный режим, Ctrl+Q выход.
-- **Адаптивность**: < 980 px — сайдбар становится рейлом; < 1100 px — правая панель не показывается.
-- **Окно**: без рамки; верхняя панель тянет окно, двойной клик — развернуть; края — `startSystemResize`.
+- **Адаптивность**: < 980 px — сайдбар становится рейлом; < 1100 px — правая панель не показывается;
+  меньше — компактная раскладка и мини-плеер (см. [Раскладки](#раскладки-full--compact--mini)).
+- **Окно**: без рамки; верхняя панель и пустые места сайдбара тянут окно, двойной клик — развернуть;
+  края — `startSystemResize` (на Windows — нативный ресайз, см. [Окно](#окно-геометрия-windows-wayland)).
 - **Цвет по умолчанию**: жёлтый Яндекса `#FFCC00`, пока ничего не играет (настраивается).
-- **Плеер** пока `app/DemoPlayer.qml` — заглушка с тем же интерфейсом, что будет у Python-плеера.
 - Бесконечные анимации в простое запрещены (держат перерисовку каждый кадр); вращение/волны — только во время игры.
 
 ## Вход и API (этап 3)
 
-- Вход: OAuth Device Flow библиотеки `yandex-music` (client_id Android-приложения), код на ya.ru/device,
+- Вход: OAuth Device Flow (как в `yandex-music`, client_id Android-приложения; `ym-api`), код на ya.ru/device,
   5 минут, опрос раз в 5 с. Запасной путь — вставить токен вручную.
-- Токен: Secret Service только при наличии коллекции по умолчанию (иначе keyring дёргает системный
-  диалог создания связки при каждом запуске), иначе файл в каталоге данных с правами 0600.
-- Все запросы — `AsyncRunner.submit(coro, on_done, on_error)`; смена аккаунта отменяет ответы старых запросов (generation).
+- Токен (`ym-platform::tokens`): Linux — Secret Service только при наличии коллекции по умолчанию (иначе
+  дёргается системный диалог создания связки при каждом запуске), Windows — диспетчер учётных данных, macOS —
+  Keychain; запасной вариант — файл в каталоге данных (на unix 0600). Записи те же, что у Python-версии.
+- Запросы идут в tokio-рантайме (`AppContext`), результат возвращается в Qt-поток через `CxxQtThread`;
+  смена аккаунта отменяет ответы старых запросов (generation).
 - Обложки: `https://` + `cover_uri.replace("%%", "400x400")`, грузит сам QML `Image` через NAM с дисковым кэшем.
 
 ## Плеер (этап 4)
 
-- `player.py`: libmpv (python-mpv), очередь с shuffle/repeat, `get-file-info` с `transport=raw` —
+- `ym-player`: libmpv (свой FFI, `libloading`), очередь с shuffle/repeat, `get-file-info` с `transport=raw` —
   FLAC (flac-mp4) приходит незашифрованным, mpv играет его по прямой ссылке; откат на AAC (hq).
 - Без пауз: в плейлисте mpv «текущий + следующий», по смене playlist-pos очередь догоняет mpv.
-- `mpris.py`: org.mpris.MediaPlayer2.yamusic на dbus-fast в asyncio-потоке (playerctl, waybar, медиаклавиши).
+- MPRIS (`ym-platform::mpris`): org.mpris.MediaPlayer2.yamusic на zbus (playerctl, waybar, медиаклавиши); только Linux.
 - Обложка играющего трека кэшируется в ~/.cache/yamusic/YaMusic/covers → цвет темы и mpris:artUrl.
 - Now Playing раскрывается через «окно» — случайную фигуру MD3E: вращаясь, растёт из обложки мини-плеера до
   средней у центра, затем на весь экран (маска MultiEffect только на время перехода).
 - Клавиши: Space, Ctrl+←/→, Shift+←/→ (±10 с), Ctrl+↑/↓ громкость, Ctrl+P плеер, Esc закрыть.
 - Тесты без звука: `YAMUSIC_AO=null`. libmpv требует `LC_NUMERIC=C`.
-- Синглтоны-экземпляры регистрировать ДО создания QQmlApplicationEngine — иначе ломается весь QML.
+- Синглтоны регистрируются вручную (`cpp/register.cpp`) ДО загрузки QML — иначе ломается весь QML;
+  `qml_module` cxx-qt не используется (он требует все мосты в одном каталоге).
 
 ## Моя волна и оценки (этап 5)
 
@@ -136,47 +154,58 @@ src/yamusic/
   волны — кружки на эллипсе (места — равными шагами по длине дуги, группы подряд, заголовок группы стоит
   на орбите перед ней; внизу свободная дуга под подпись «что играет»). Выбранная настройка притягивается
   к центру и получает форму и цвет группы; форму центра задаёт настроение, цвет — характер. В тесном окне
-  кружки не мельчают, а расходятся на два кольца (`zig`). Движение — только трансформации.
+  кружки расходятся на два кольца (`zig`) и поджимаются; если орбита не влезает и так (кружки мельче 64 px,
+  `_fit().fits == false`), фигура поднимается наверх, а настройки — группами тональных чипов под ней
+  (переход плавный, с запасом 32 px у порога). Движение — только трансформации.
+- Цвета групп — тональные пары Material You: кружок — контейнер группы, подпись — её on-цвет (только точные
+  пары: контраст гарантирован при любой схеме). Самый яркий акцент (`primary`) — у «Настроения» (оно же задаёт
+  форму центра), «Занятие» — `secondary`, «Характер» — `tertiary`, «Язык» — нейтральный `surfaceVariant`.
 - Сиды: `user:onyourwave` или сид занятия (`activity:workout`, `genre:dance`, `mood:relaxed`) + настройки
   `settingDiversity:*`, `settingMoodEnergy:*`, `settingLanguage:*`. Список — из `/rotor/wave/settings`,
-  при ошибке — запасной в `wave.py`. Выбор хранится в `Settings.waveSeeds`.
+  при ошибке — запасной (`ym-services::wave::fallback_groups`). Выбор хранится в `Settings.waveSeeds`.
 - Смена настройки во время игры: новая сессия, всё после текущего трека заменяется.
 - Обратная связь волне: radioStarted, trackStarted, trackFinished/skip (сколько секунд проиграно), like/unlike/dislike.
 - `/play-audio` для любого трека: в начале (0 с) и в конце (проиграно, позиция конца); `from` — по контексту очереди.
-- Лайк меняет интерфейс сразу (`Library.likesRevision` для привязок), при ошибке API — откат.
+- Лайк меняет интерфейс сразу (`Library.likesRevision` для привязок), при ошибке API — откат и уведомление
+  внизу окна (`Library.notice`, «Не удалось поставить лайк: …»). Осенью 2026 сервер обрывает запросы записи
+  лайков (`likes/tracks/add-multiple`, `remove`) без ответа — это на стороне Яндекса.
   «Не рекомендовать» = `users_dislikes_tracks_add` + следующий трек.
 - Тесты на настоящем аккаунте: `YAMUSIC_NO_REPORT=1` — история и обратная связь не отправляются, только пишутся в лог.
 
 ## Каталог и поиск (этап 6)
 
-- `catalog.py` — синглтон `Catalog`: поиск (`search`, лучший результат + треки/альбомы/исполнители/плейлисты),
+- `Catalog` (мост; логика — `ym-services::catalog`): поиск (`search`, лучший результат + треки/альбомы/исполнители/плейлисты),
   `album(id)` → AlbumData (albums_with_tracks), `artist(id)` → ArtistData (artists_brief_info + direct_albums).
 - Поиск внутри списка треков (`TrackListPage`: «Мне нравится», плейлист, альбом) — кнопка-лупа в шапке или
-  Ctrl+F (повторный Ctrl+F — общий поиск), Esc закрывает. Модель `trackfilter.TrackFilter` (QML-тип): слова
+  Ctrl+F (повторный Ctrl+F — общий поиск), Esc закрывает. Модель `TrackFilter` (QML-тип, `models/track_filter.rs`): слова
   запроса ищутся в названии, исполнителях и альбоме, без регистра, «ё» = «е». В очередь идёт найденное.
   Список всегда показывает `TrackFilter`, а не исходную модель: при подмене модели `ListView` с `reuseItems`
   достаёт из запаса строки прежней модели и показывает в них чужие треки.
 - Переходы — `Catalog.openArtist/openAlbum/openPlaylist/openArtists` → сигнал `openRequested`, его ловит Main
   (закрывает полноэкранный плеер, `router.push`). У трека с несколькими исполнителями — меню `Md3/Menu`.
+  `openAlbum(albumId, trackId)` — альбом прокручивается к треку и подсвечивает его.
 - Узкий контент: правая панель (340 px) открывается в окне от 1100 px; пока она открыта и окно уже 1400 px,
   боковая панель сворачивается в рейку — иначе контенту остаётся меньше, чем в самом узком окне. Мини-плеер
   по мере сужения прячет «⋯» (< 880 px; меню остаётся по ПКМ), громкость (< 760) и перемешивание с повтором
   (< 640), а подпись под орбитой волны скрывается, когда свободная дуга короче неё.
 - Ссылки (`app/LinkLabel`) — исполнитель и альбом в строках треков, мини-плеере, полноэкранном плеере, шапке альбома.
 - «Волна» на странице исполнителя — `Wave.playStation("artist:ID")` (сид без настроек «Моей волны»).
-- API: `api.RetryingRequest` — не больше 4 запросов разом и повтор 429/5xx (паузы 0,8 → 12,8 с):
+- API (`ym-api::YmClient`): не больше 4 запросов разом и повтор 429/5xx (паузы 0,8·2ⁿ с, до 5 раз):
   Яндекс отвечает 429 «Concurrency limit exceeded» на пачку одновременных запросов с одного токена.
 - Картинки QML грузятся по HTTP/1.1: по HTTP/2 сервер обложек отвечает REFUSED_STREAM на пачку запросов.
 
 ## Трей и один экземпляр
 
-- Значок в трее — `Qt.labs.platform.SystemTrayIcon` в `Main.qml` (StatusNotifierItem через тему платформы,
-  QtWidgets не нужен); создаётся `Instantiator`-ом, только если `Settings.closeToTray` и это не снимок/галерея
-  (контекстное свойство `yamusicTray`). Меню: показать/скрыть, играть/пауза, следующий, предыдущий, выход.
+- Значок в трее — `Qt.labs.platform.SystemTrayIcon` в `Main.qml` (на Linux — StatusNotifierItem через тему
+  платформы; на Windows нужен QtWidgets, поэтому приложение — `QApplication`); создаётся `Instantiator`-ом, только
+  если `Settings.closeToTray` и это не снимок/галерея (контекстное свойство `yamusicTray`). Меню: показать/скрыть,
+  играть/пауза, следующий, предыдущий, выход. На Windows меню виджетное и к значку не привязано — открывается
+  вручную по активации `Context` (ПКМ).
 - Закрытие окна (`onClosing`): трей включён и есть в системе — окно прячется, иначе `Qt.quit()`.
   `quitOnLastWindowClosed` выключен: выход решает окно. Ctrl+Q выходит всегда.
-- Один экземпляр: при запуске ищем на шине имя MPRIS работающего плеера и зовём его `Raise`
-  (`app.raise_running_instance`) — так значок в лаунчере показывает спрятанное в трей окно.
+- Один экземпляр (`ym-platform::single_instance`): на Linux ищем на шине имя MPRIS работающего плеера и
+  зовём его `Raise`; на Windows — именованный канал `\\.\pipe\yamusic-YaMusic-<user>`, на macOS — unix-сокет.
+  Так значок в лаунчере показывает спрятанное в трей окно.
   Обход для разработки — `--new-instance`; режимы `--screenshot`, `--qml`, `--gallery` не проверяют.
 
 ## Фон и движение
@@ -202,18 +231,28 @@ src/yamusic/
 - Смена трека в полноэкранном плеере (`app/NowPlayingCover`): двойной буфер обложек, старая сжимается
   в «печеньку» с вращением и тает, новая вырастает из цветка в свою фигуру; подписи проявляются снизу.
 - «Дыхание» обложки: фильтр `@lvl:lavfi=[astats=metadata=1:reset=1]`, RMS кадра → `Player.level`
-  (только пока открыт полноэкранный плеер — `Player.levelsWanted`); дышит контур фигуры (`MorphShape.pulse`:
-  впадины глубже, фигура 97 → 100 %), обложка внутри неподвижна.
+  (только пока открыт полноэкранный плеер или окно в мини-режиме — `Player.levelsWanted`); дышит контур фигуры
+  (`MorphShape.pulse`: впадины глубже, фигура 97 → 100 %), обложка внутри неподвижна. В мини-плеере на ударе
+  ещё и вуаль над фоном становится тоньше — фон «вспыхивает» в такт.
+- Обложки (`Md3/MorphImage`): размер декодирования — ступенями по 128 физ. px, `retainWhileLoading`; заглушка —
+  только пока у этой обложки не было ни кадра. Иначе при ресайзе окна картинка перезагружалась каждый кадр и моргала.
 - Карточка исполнителя при наведении на ссылку (0,6 с) — `Catalog.previewArtist` → `ArtistPreview` в Main.
 
 ## Тексты песен
 
-- `lyrics_sources.py` — загрузчик из плагина Word Lyrics (DMS) того же автора: NetEase YRC (по словам) →
-  Musixmatch richsync (по словам) → LRCLIB → Musixmatch subtitles → NetEase LRC → Яндекс LRC.
-  Построчным текстам время слов интерполируется по длине. Кэш — ~/.cache/yamusic/YaMusic/lyrics.
-- `lyrics.py` — синглтон `Lyrics` для играющего трека (поиск в рабочем потоке, Яндекс — через asyncio-цикл).
+- `ym-lyrics` (перенос `lyrics_sources.py` — загрузчика из плагина Word Lyrics (DMS) того же автора):
+  NetEase YRC (по словам) → Musixmatch richsync (по словам) → LRCLIB → Musixmatch subtitles → NetEase LRC →
+  Яндекс LRC. Построчным текстам время слов интерполируется по длине. Кэш — ~/.cache/yamusic/YaMusic/lyrics
+  (`CACHE_VERSION` 6: найденное — навсегда, «не найдено» — 6 ч).
+- LRCLIB: точный `get`, затем поиск по названию с исполнителем; если ничего не подошло — все треки исполнителя
+  (поиск LRCLIB ищет слова целиком: «погибать» не находит «Пагибать»), название сравнивается нечётко (до 20 %
+  правок по Левенштейну). Из синхронных записей с длительностью ±3 с (иначе ±5 с) берётся разметка, с которой
+  согласно больше всего записей; разметка, скопированная на версии другой длины (> 10 с), штрафуется.
+- `Lyrics` (мост; сервис — `ym-services::lyrics`) — текст играющего трека.
 - `app/LyricsView.qml` — заливка по словам (шейдер `wordfill`), каскадная прокрутка, паузы «• • •»,
-  размытие неактивных строк, затухание краёв (`edgefade`), клик по строке — перемотка.
+  размытие неактивных строк, затухание краёв (`edgefade`), клик по строке — перемотка. Текст листается
+  колесом, тачпадом и перетаскиванием: слежение за строкой стоит, возвращается через 3 с или кнопкой
+  «К текущей строке».
   Позиция между обновлениями плеера (~5/с) интерполируется по часам.
 
 ## Производительность (уроки)
@@ -221,7 +260,8 @@ src/yamusic/
 - Главная нагрузка в фоне — бесконечные анимации: любая из них заставляет перерисовывать всё окно на
   частоте монитора. `Theme.calm` (окно не в фокусе, настройка «Экономия в фоне») останавливает
   декоративные (волна прогресса, вращения, фигуры, перелив, сглаживание прогресса): 119 → 13 кадров/с,
-  CPU 20 % → 3 % (offscreen-замер). Текст песни идёт и в фоне.
+  CPU 20 % → 3 % (offscreen-замер). Текст песни идёт и в фоне. Исключение — мини-плеер, закреплённый поверх
+  всех окон: он на виду, его анимации не замирают.
 - Волнистый прогресс — шейдер (`Md3/shaders/wavy.frag`), а не `Shape`: контур из сотен точек пересобирался
   на CPU каждый кадр бегущей волны и при каждом обновлении позиции. Вращения — `Item.rotation`, а не
   `MorphShape.angle` (тот перестраивает путь).
@@ -241,27 +281,99 @@ src/yamusic/
 - `MorphShape` рисуется белым, цвет — шейдер `Md3/shaders/tint.frag(.qsb)` на слое самой Shape:
   CurveRenderer при смене `fillColor` перестраивает геометрию (≈0,15 мс на фигуру за кадр перекраски).
   Пересборка шейдера: `/usr/lib/qt6/bin/qsb --glsl "100 es,120,150" --hlsl 50 --msl 12 -o tint.frag.qsb tint.frag`
-  (qsb из пакета qt6-shadertools; в pyside6-essentials его нет).
-- Все вызовы libmpv — в потоке `mpv-cmd`; состояние — из наблюдателей. Синхронный вызов из GUI
+  (qsb из пакета qt6-shadertools; в CI он ставится аддоном `qtshadertools`).
+- Все вызовы libmpv — в отдельном потоке `ym-player`; состояние — из наблюдателей. Синхронный вызов из GUI
   подвешивает кадры, пока mpv открывает сетевой поток.
-- `sys.setswitchinterval(0.001)`: фоновый Python иначе держит GIL до 5 мс и GUI-поток ждёт.
-- Свойство-`Property` в подклассе с `notify` на сигнал базового класса — segfault PySide; объявлять в базовом.
+- (Python-версия: `sys.setswitchinterval(0.001)` против удержания GIL; `Property` с `notify` на сигнал базового
+  класса роняло PySide — в Rust-версии этого нет.)
 - Замер стоимости перекраски: `QT_LOGGING_RULES="qt.scenegraph.time.renderloop=true"` → `animations=N ms`.
+
+## Раскладки: full / compact / mini
+
+- `Main.qml`, `layoutMode`: **full** — как раньше; **compact** — ширина 480–720 px; **mini** — уже 480 или ниже 400 px.
+  Порог с гистерезисом 24 px (выход из режима — на 24 px дальше входа); сжатие переключает сразу, расширение —
+  когда размер простоял 150 мс: во время перетягивания раскладка не прыгает туда-обратно.
+- **compact**: сайдбар — модальная шторка (`Sidebar.drawer`, кнопка меню в `TopBar`), правая панель скрыта,
+  мини-плеер в одну строку (`MiniPlayer.compact`), полноэкранный плеер в одну колонку (текст и очередь —
+  переключателем, `NowPlaying.compact`), «Моя волна» — чипы, если орбита не влезает. Кнопка сворачивания сайдбара
+  работает и когда рейл навязан шириной: раскрывает панель поверх контента.
+- **mini** (`app/MiniMode.qml`): обычная сцена не пересоздаётся, а скрывается после перекрёстного растворения.
+  Карточка (обложка в фигуре, название, волна перемотки, кнопки; широкое окно — обложка слева) или, ниже 200 px,
+  полоска в одну строку. Фон — размытая обложка, дышит в такт. Кнопки окна — пилюля в углу при наведении
+  («свернуть», «закрыть»); закреплённое окно всегда показывает булавку; с Shift — булавка вместо кнопок.
+  Колесо — громкость (±5 %, тачпад плавно) с плашкой процентов; в фокусе ←/→ — трек, ↑/↓ — громкость.
+  Двойной клик и пункт меню «Развернуть» — `expandFromMini()` (не меньше 960×640). Всё интерактивное — не ближе
+  8 px к краю: там зона ресайза окна.
+- `pinnedOnTop` (окно) — «поверх всех окон» (`Qt.WindowStaysOnTopHint`), не запоминается; на Wayland протокола нет —
+  булавка и пункт меню скрыты (`canPin`).
+- Переходы раскладок анимированы (сайдбар, кнопки мини-плеера, колонки плеера, орбита ↔ чипы, колонка альбома
+  в строках треков), у порогов в компонентах — свои запасы (±16–32 px).
+
+## Меню трека (десктоп)
+
+- `app/TrackMenu.qml`, один экземпляр в `Main.qml`; открывается `Catalog.requestTrackMenu(track, x, y)` →
+  `trackMenuRequested` — по ПКМ и кнопке «⋯» в строках треков, мини-плеере, полноэкранном плеере и мини-режиме.
+- Пункты: закрепить/открепить волну по треку (`Library.pinWave/unpinWave/isWavePinned`), «Моя волна по треку»
+  (`Wave.playStation("track:ID")`) | повтор (у играющего), очередь, настройки звука | «Добавить в плейлист ›»
+  («Новый плейлист…» — `NewPlaylistDialog`, свои плейлисты — `Library.addToPlaylist`), «Поделиться ›»
+  (`Catalog.copyLink(Catalog.trackUrl(track))`, подтверждение — `Snackbar`), перейти к треку / альбому / исполнителю.
+  В мини-режиме сверху — перемешивание, повтор, «Поверх всех окон», «Развернуть»; меню открывается и без трека.
+- `Md3/Menu.qml`: пункты `{id, text, icon, enabled, checked, separator, submenu}`, сигналы `picked(index)` и
+  `triggered(id, item)`, клавиатура. Каждая карточка — `T.Popup` с `popupType: Popup.Window` (отдельное окно:
+  выходит за пределы приложения), подменю — дочерний попап открытой карточки; прижатие к краям экрана — по
+  глобальным координатам. На Wayland захватывающий попап открывается только в ответ на ввод (ПКМ, клик по «⋯»);
+  окно там не знает своих координат, к краю меню прижимает композитор.
+
+## Окно: геометрия, Windows, Wayland
+
+- Размер, положение и «развёрнуто» — настройки `windowWidth/windowHeight/windowX/windowY/windowMaximized`;
+  пишутся через 400 мс после перемещения или ресайза и при закрытии (выход из трея их не теряет). Окно создаётся
+  скрытым и показывается уже на месте; точка вне всех мониторов — по центру; `--size` важнее сохранённого.
+  Свёрнутое, полноэкранное и спрятанное в трей окно последнее обычное положение не перезаписывает.
+  На Wayland координаты всегда 0 — не сохраняются и не восстанавливаются (ставит композитор).
+- Windows (`cpp/winframe.cpp`): фильтр нативных событий — `WM_NCCALCSIZE` (без системной рамки) и `WM_NCHITTEST`
+  (края — нативный ресайз, Aero Snap), `WS_THICKFRAME` сохраняется; Qt снимает его при смене флагов окна
+  (например, «поверх всех окон») — фильтр возвращает его по `WM_STYLECHANGED`. Кнопки окна включены всегда.
+- Windows: иконка вшита в exe ресурсом `IDI_ICON1` (`build.rs`, `embed-resource`) — её берут ярлыки, панель задач
+  и окна (SVG-иконка окна там не ставится); релизный exe — GUI-подсистема, без окна консоли.
+
+## Сборка и выпуск
+
+- **CI** (`.github/workflows/build.yml`): на PR в main и вручную — Linux (AppImage + tar.gz, смоук-снимок),
+  Windows (инсталлер Inno Setup + portable), macOS (best effort), Android (APK).
+- **Выпуск** (`release.yml`): тег `v*` → те же сборки → GitHub Release. Версия — `[workspace.package]` в
+  `Cargo.toml` (+ `android/app/build.gradle.kts`, `yamusic.iss`).
+- **Qt** — `.github/scripts/install_qt.py`: читает `Updates.xml` репозитория download.qt.io (aqtinstall 3.3 не
+  понимает раскладку Qt 6.12), сверяет SHA-1, распаковывает 7z. 7-Zip 25 без `-snld20` (21–24 — `-snld`)
+  выбрасывает симлинки `libQt6*.so` как «опасные»; архив ICU ложится в корень — переносится в `lib/`, иначе qmake
+  (`RUNPATH $ORIGIN/../lib`) не запускается.
+- **Linux**: cxx-qt не линкуется GNU ld.bfd — нужен `lld` (или mold/gold; gold в новых binutils убран).
+  `package_linux.sh`: linuxdeploy + plugin-qt; плагины `wayland-graphics-integration-client` (без них на Wayland
+  не создаётся GL — аварийный выход), `iconengines` (SVG-иконки), `offscreen` (смоук-тест) кладутся вручную.
+  Проверено на Debian 13 (WSLg, Wayland).
+- **Windows**: `build_windows.ps1` — Qt 6.12 MSVC, `cargo build --release`, `windeployqt --qmldir`, рантайм MSVC,
+  `libmpv-2.dll` (shinchiro/mpv-winbuild-cmake), Inno Setup → `target/dist/YaMusic-<версия>-Setup.exe`.
+- Скрипты (`*.sh`, `*.py`, `*.yml`) — с LF (`.gitattributes`), иначе ломаются при клоне на Windows и запуске в WSL.
 
 ## Разработка
 
 ```bash
-uv run yamusic --gallery                         # галерея MD3-кита (пока это и есть точка входа)
-uv run yamusic --gallery --light --set startCover=1
-uv run yamusic --gallery --set scrollTo=600 --screenshot out.png   # снимок без окна (offscreen + OpenGL)
-uv run yamusic --size 900x700 --set startPage=settings --screenshot out.png  # снимок приложения (временный конфиг)
+export QMAKE=/path/to/Qt/6.12.0/<arch>/bin/qmake6     # Qt 6.12 (CI ставит его .github/scripts/install_qt.py)
+cargo run -p yamusic                                   # приложение (QML грузится из src/yamusic/qml)
+cargo run -p yamusic -- --gallery --light --set startCover=1
+cargo run -p yamusic -- --gallery --set scrollTo=600 --screenshot out.png   # снимок без окна (offscreen)
+cargo run -p yamusic -- --size 900x700 --set startPage=settings --screenshot out.png  # снимок (временный конфиг)
+cargo test --workspace && cargo clippy --workspace --all-targets
 ```
+
+QML-правки не требуют пересборки: отладочный бинарь читает `src/yamusic/qml` с диска. Снимки на Windows —
+`QSG_RHI_BACKEND=d3d11` (OpenGL offscreen там белый); `--size` важнее сохранённого размера окна.
 
 Подводные камни:
 - **Роли `onX` называются `fgX`** (`Theme.fgPrimary`, `Theme.fgSurfaceVariant`, `inverseOnSurface` → `fgInverseSurface`).
   QML принимает имена вида `onSomething` за обработчики сигналов: `Behavior` на таком свойстве роняет движок, а чтение даёт мусор.
 - Вложенные `ColumnLayout`/`RowLayout` по умолчанию `fillWidth: true` — для фиксированных колонок явно ставить `Layout.fillWidth: false`.
-- Software-бэкенд Qt Quick не рисует `MultiEffect`/`RectangularShadow`; offscreen-снимки — только с `QT_QUICK_BACKEND=rhi QSG_RHI_BACKEND=opengl` (флаг `--screenshot` делает это сам).
+- Software-бэкенд Qt Quick не рисует `MultiEffect`/`RectangularShadow`; offscreen-снимки — только с `QT_QUICK_BACKEND=rhi` и OpenGL (Windows — D3D11); флаг `--screenshot` делает это сам.
 - Шрифт — **Google Sans** (вариативный, вшит). Google Sans Flex из MD3 Expressive не годится: в нём нет кириллицы.
   Вес задаётся только осью `wght` (`Label.weight`, 400..700); `font.weight` заставляет Qt брать статический файл
   семейства из системы, и 600 превращается в 500.
@@ -270,7 +382,7 @@ uv run yamusic --size 900x700 --set startPage=settings --screenshot out.png  # �
   кладётся поверх, тема переключается мгновенно, снимок уезжает (шейдер `wipe.frag`) по `Player.direction`:
   вперёд — слева направо, назад — справа налево. Привязки цветов пересчитываются один раз, а не каждый кадр
   (animations = 0 мс во время шторки против 2–5 мс у плавной анимации). Без ThemeWipe (галерея) — прежняя
-  плавная анимация прогресса в `Theme` (OKLab). Расчёт схемы — в пуле потоков (~40 мс Python).
+  плавная анимация прогресса в `Theme` (OKLab). Расчёт схемы — в фоновом потоке (`spawn_blocking`, `ym-theme`).
   Как уходит снимок — `Settings.trackTransition` (режимы одного шейдера): `wipe` — шторка; `ripple` — новое
   расходится от обложки (`originItem`: обложка полноэкранного плеера или мини-плеера) фигурой с волнистым
   краем; `dissolve` — снимок равномерно тает; `liquid` — тает по плавному шуму и «плывёт». Фон из обложки
@@ -278,11 +390,11 @@ uv run yamusic --size 900x700 --set startPage=settings --screenshot out.png  # �
   Компонентам нельзя иметь свою `Behavior on color` без `enabled: !Theme.transitioning` — иначе двойная анимация и рывки.
 - **60 к/с на 144-герцовом мониторе.** Qt Quick берёт период кадра у `primaryScreen()`, а на Wayland основной —
   первый монитор от композитора (у пользователя 60-герцовый DVI-D-1). Qt считает частые кадры «сломанным vsync» и
-  гоняет анимации таймером 60 Гц. `display.py` при старте делает основным самый быстрый монитор через экспортируемую
-  `QWindowSystemInterface::handlePrimaryScreenChanged` (ctypes). Отключить: `YAMUSIC_KEEP_PRIMARY_SCREEN=1`.
+  гоняет анимации таймером 60 Гц. `display.rs` при старте делает основным самый быстрый монитор через экспортируемую
+  `QWindowSystemInterface::handlePrimaryScreenChanged` (dlsym). Отключить: `YAMUSIC_KEEP_PRIMARY_SCREEN=1`.
   Проверка: `--debug-fps` (оверлей) или `QT_LOGGING_RULES="qt.scenegraph.time.renderloop=true"`.
 - В окружении пользователя `QSG_USE_SIMPLE_ANIMATION_DRIVER=1` — анимации от таймера ~60 Гц вместо vsync
-  (дёргается на 144 Гц). `app.py` убирает переменную для своего процесса. Прокрутка — только через `SmoothFlickable`.
+  (дёргается на 144 Гц). `engine.rs` убирает переменную для своего процесса. Прокрутка — только через `SmoothFlickable`.
 - В окружении пользователя `QT_LOGGING_RULES` глушит `console.log`; для отладки: `QT_LOGGING_RULES="qml.debug=true"`.
   Замер кадров при смене обложек: `--set perfLog=true`.
 - Иконки центрируются по фактическому контуру (IconMetrics меряет пиксели в том же кегле и opsz):
@@ -290,7 +402,8 @@ uv run yamusic --size 900x700 --set startPage=settings --screenshot out.png  # �
 - Иконка рядом с текстом — `Icon { tight: true }`: ширина по видимому контуру, и отступы MD3 (кнопки,
   чипы, группы) отмеряются от него. Иначе узкие глифы (logout, refresh) дают лишние 2–4 px слева и в зазоре.
 - `ListView` с `header` не сдвигает `contentY`, когда шапка меняет высоту, — см. `keepTop()` в `TrackListPage`.
-- Шрифт иконок `assets/fonts/MaterialSymbolsRounded.ttf` — полный вариативный (15 МБ); перед упаковкой урезать через `pyftsubset`.
+- Шрифт иконок в репозитории уже урезан (`tools/subset_fonts.py`, на Windows — с `PYTHONUTF8=1`); скрипт пересобирает и
+  `GoogleSans.ttf` — если он не менялся, вернуть его (`git checkout`).
 
 ## Android (`android/`)
 
