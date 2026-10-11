@@ -64,7 +64,7 @@ Item {
     }
     TapHandler {
         id: menuTap
-        enabled: Player.hasTrack
+        // без трека меню тоже нужно: в нём перемешивание, повтор, «поверх всех окон», «развернуть»
         acceptedButtons: Qt.RightButton
         onTapped: point => {
             const p = root.mapToItem(null, point.position.x, point.position.y)
@@ -117,8 +117,20 @@ Item {
         }
     }
 
+    // Закрепить поверх всех окон — общее состояние окна (его же переключает меню трека)
+    component PinButton: IconButton {
+        icon: "push_pin"
+        size: "xs"
+        checkable: true
+        autoToggle: false
+        checked: root.window.pinnedOnTop
+        iconColor: checked ? Theme.fgSecondaryContainer : Theme.fgSurface
+        onClicked: root.window.pinnedOnTop = !root.window.pinnedOnTop
+    }
+
     component WindowButtons: Row {
         spacing: 2
+        PinButton {}
         IconButton { icon: "remove"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.window.showMinimized() }
         IconButton { icon: "open_in_full"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.expandRequested() }
         IconButton { icon: "close"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.window.close() }
@@ -283,13 +295,15 @@ Item {
                 icon: "skip_next"; iconColor: Theme.fgSurface; enabled: Player.hasTrack; onClicked: Player.next()
             }
             LikeButton { track: Player.track; visible: stripBox.width >= 420 }
-            // кнопки окна — столбиком у правого края
-            Column {
+            // кнопки окна — квадратом 2×2 у правого края (столбик из четырёх не влез бы в низкое окно)
+            Grid {
                 Layout.alignment: Qt.AlignVCenter
+                columns: 2
                 spacing: 0
+                PinButton {}
                 IconButton { icon: "close"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.window.close() }
-                IconButton { icon: "open_in_full"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.expandRequested() }
                 IconButton { icon: "remove"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.window.showMinimized() }
+                IconButton { icon: "open_in_full"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.expandRequested() }
             }
         }
 

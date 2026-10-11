@@ -19,11 +19,56 @@ Window {
     minimumHeight: 120
     visible: true
     title: Player.hasTrack ? Player.title + " — " + Player.artist + " · YaMusic" : "YaMusic"
-    flags: Qt.Window | Qt.FramelessWindowHint
+    // «Поверх всех окон» (кнопка мини-плеера, меню трека); не запоминается между запусками
+    property bool pinnedOnTop: false
+    flags: Qt.Window | Qt.FramelessWindowHint | (pinnedOnTop ? Qt.WindowStaysOnTopHint : 0)
     color: Theme.surface
 
-    readonly property string layoutMode: (width < 480 || height < 400) ? "mini" : width < 720 ? "compact" : "full"
+    // Раскладка по размеру окна. Порог с гистерезисом: вход в режим — у порога, выход — на 24 px дальше,
+    // поэтому у границы режим не дёргается туда-обратно. Сжатие переключает сразу (старая раскладка уже
+    // не помещается), расширение — когда размер постоит 150 мс, а не на каждом шаге перетаскивания.
+    property string layoutMode: _modeFor(width, height, "")
     readonly property bool mini: layoutMode === "mini"
+    readonly property var _modeRank: ({ mini: 0, compact: 1, full: 2 })
+    function _modeFor(w, h, cur) {
+        const band = 24
+        const miniNow = cur === "mini" ? (w < 480 + band || h < 400 + band) : (w < 480 || h < 400)
+        if (miniNow)
+            return "mini"
+        return (cur === "full" || cur === "") ? (w < 720 ? "compact" : "full") : (w < 720 + band ? "compact" : "full")
+    }
+    function _reevaluateMode() {
+        const next = _modeFor(width, height, layoutMode)
+        if (next === layoutMode)
+            modeSettle.stop()
+        else if (_modeRank[next] < _modeRank[layoutMode]) {
+            modeSettle.stop()
+            layoutMode = next
+        } else
+            modeSettle.restart()
+    }
+    Component.onCompleted: layoutMode = _modeFor(width, height, "")   // разорвать привязку: дальше — только _reevaluateMode
+    onWidthChanged: _reevaluateMode()
+    onHeightChanged: _reevaluateMode()
+    Timer {
+        id: modeSettle
+        interval: 150
+        onTriggered: win.layoutMode = win._modeFor(win.width, win.height, win.layoutMode)
+    }
+
+    // 0 — обычная сцена, 1 — мини-плеер; между ними — перекрёстное растворение с лёгким масштабом
+    property real miniProgress: mini ? 1 : 0
+    Behavior on miniProgress {
+        NumberAnimation { duration: 320; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized }
+    }
+    property bool _miniUsed: false
+    onMiniChanged: {
+        if (mini) {
+            _miniUsed = true
+            if (nowPlaying.open)
+                nowPlaying.hide()
+        }
+    }
 
     readonly property bool panelFits: width >= 1100
     readonly property bool panelShown: Settings.rightPanelOpen && panelFits && layoutMode === "full"
@@ -47,7 +92,6 @@ Window {
         width = w
         height = h
     }
-    onMiniChanged: if (mini && nowPlaying.open) nowPlaying.hide()
 
     function showWindow() {
         show()
@@ -110,8 +154,13 @@ Window {
     Item {
         id: scene
         anchors.fill: parent
-        // в мини-плеере обычная сцена не рисуется вовсе
-        visible: !win.mini
+        // в мини-плеере сцена не выгружается (страницы и прокрутка сохраняются), а только гаснет и не рисуется
+        visible: win.miniProgress < 1
+        enabled: !win.mini
+        // уходящая раскладка гаснет быстрее, чем проявляется новая
+        opacity: Math.max(0, 1 - win.miniProgress * 1.6)
+        scale: 1 - 0.04 * win.miniProgress
+        layer.enabled: win.miniProgress > 0 && win.miniProgress < 1
 
         Rectangle { anchors.fill: parent; color: Theme.surface }
 
@@ -143,7 +192,7 @@ Window {
                 Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
                 router: router
                 compact: win.compactSidebar
-                drawer: win.layoutMode === "compact"
+                drawer: win.layoutMode !== "full"
             }
 
             // Контент
@@ -161,7 +210,7 @@ Window {
                     anchors.right: parent.right
                     router: router
                     window: win
-                    showMenuButton: win.layoutMode === "compact"
+                    showMenuButton: win.layoutMode !== "full"
                     onMenuClicked: sidebar.openDrawer()
                     z: 2
                 }
@@ -231,7 +280,13 @@ Window {
     Loader {
         id: miniMode
         anchors.fill: parent
-        active: win.mini
+        // однажды созданный мини-плеер остаётся (без пересоздания при каждом сжатии), невидимый — не рисуется
+        active: win.mini || win._miniUsed
+        visible: win.miniProgress > 0
+        enabled: win.mini
+        opacity: Math.max(0, (win.miniProgress - 0.25) / 0.75)
+        scale: 0.96 + 0.04 * win.miniProgress
+        layer.enabled: win.miniProgress > 0 && win.miniProgress < 1
         sourceComponent: MiniMode {
             window: win
             onExpandRequested: win.expandFromMini()
