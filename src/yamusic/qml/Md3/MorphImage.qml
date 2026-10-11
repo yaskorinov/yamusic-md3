@@ -29,7 +29,8 @@ Item {
         pulse: mask.pulse
         duration: mask.duration
         color: root.placeholderColor
-        visible: image.status !== Image.Ready
+        // заглушка — только пока у этой обложки не было ни кадра; при перезагрузке под новый размер видна старая
+        visible: image.source.toString() === "" || image.shownSource !== image.source || image.status === Image.Error
     }
 
     Image {
@@ -38,7 +39,13 @@ Item {
         visible: false
         asynchronous: true
         fillMode: Image.PreserveAspectCrop
-        sourceSize: Qt.size(Math.ceil(root.width * Screen.devicePixelRatio), Math.ceil(root.height * Screen.devicePixelRatio))
+        // размер декодирования — ступенями по 128 px: иначе каждый шаг ресайза окна перезагружал обложку
+        readonly property int _step: 128
+        sourceSize: Qt.size(Math.max(_step, Math.ceil(root.width * Screen.devicePixelRatio / _step) * _step),
+                            Math.max(_step, Math.ceil(root.height * Screen.devicePixelRatio / _step) * _step))
+        retainWhileLoading: true
+        property url shownSource: ""
+        onStatusChanged: if (status === Image.Ready) shownSource = source
     }
 
     // Слой — на обёртке: поворот самой фигуры должен попасть в текстуру маски
