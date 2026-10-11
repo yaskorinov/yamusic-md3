@@ -3176,7 +3176,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "yamusic"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3202,7 +3202,7 @@ dependencies = [
 
 [[package]]
 name = "ym-api"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aes 0.8.4",
  "base64 0.22.1",
@@ -3222,7 +3222,7 @@ dependencies = [
 
 [[package]]
 name = "ym-lyrics"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aes 0.8.4",
  "ecb",
@@ -3242,7 +3242,7 @@ dependencies = [
 
 [[package]]
 name = "ym-platform"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "dirs",
  "keyring",
@@ -3260,7 +3260,7 @@ dependencies = [
 
 [[package]]
 name = "ym-player"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fastrand",
  "futures",
@@ -3279,7 +3279,7 @@ dependencies = [
 
 [[package]]
 name = "ym-services"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3298,7 +3298,7 @@ dependencies = [
 
 [[package]]
 name = "ym-theme"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "image",
  "material-colors",

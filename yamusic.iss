@@ -6,7 +6,7 @@
 
 #define AppName "YaMusic"
 #ifndef AppVersion
-  #define AppVersion "0.2.0"
+  #define AppVersion "0.3.0"
 #endif
 ; числовая версия для свойств файла (без -rc1 и т. п.)
 #ifndef AppNumVersion
