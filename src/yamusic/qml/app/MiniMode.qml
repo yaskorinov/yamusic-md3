@@ -144,10 +144,12 @@ Item {
     Rectangle {
         id: chrome
         readonly property bool pinned: root.window.pinnedOnTop === true
+        // с Shift вместо «свернуть/закрыть» — булавка (Shift считывается при движении мыши над окном)
+        readonly property bool shift: hover.hovered && (hover.point.modifiers & Qt.ShiftModifier) !== 0
         readonly property bool shown: hover.hovered || pinned
         anchors.top: parent.top
         anchors.right: parent.right
-        anchors.margins: 6
+        anchors.margins: 10               // мимо зоны ресайза у края окна
         z: 10
         width: chromeRow.implicitWidth + 4
         height: chromeRow.implicitHeight + 4
@@ -164,13 +166,14 @@ Item {
             anchors.centerIn: parent
             spacing: 0
             IconButton {
-                visible: chrome.pinned
+                visible: chrome.pinned || chrome.shift
                 icon: "push_pin"; size: "xs"
-                checkable: true; autoToggle: false; checked: true
-                onClicked: root.window.pinnedOnTop = false
+                checkable: true; autoToggle: false; checked: chrome.pinned
+                iconColor: checked ? Theme.fgSecondaryContainer : Theme.fgSurface
+                onClicked: root.window.pinnedOnTop = !chrome.pinned
             }
-            IconButton { visible: hover.hovered; icon: "remove"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.window.showMinimized() }
-            IconButton { visible: hover.hovered; icon: "close"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.window.close() }
+            IconButton { visible: hover.hovered && !chrome.shift; icon: "remove"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.window.showMinimized() }
+            IconButton { visible: hover.hovered && !chrome.shift; icon: "close"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.window.close() }
         }
     }
 
@@ -285,9 +288,9 @@ Item {
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: 10
-            anchors.rightMargin: 4
+            anchors.rightMargin: 14           // кнопки — мимо зоны ресайза у правого края
             anchors.topMargin: 6
-            anchors.bottomMargin: 10
+            anchors.bottomMargin: 14
             spacing: 6
 
             Cover {
@@ -333,6 +336,7 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
+            anchors.bottomMargin: 8          // нижние 6 px — зона ресайза окна
             anchors.leftMargin: 10
             anchors.rightMargin: 10
             height: 12
@@ -353,11 +357,20 @@ Item {
         onWheel: event => {
             const touchpad = event.pixelDelta.y !== 0 && event.angleDelta.y % 120 !== 0
             const d = touchpad ? event.pixelDelta.y / 600 : event.angleDelta.y / 120 * 0.05
-            Player.volume = Math.max(0, Math.min(1, Player.volume + d))
-            volumeHint.opacity = 1
-            volumeHintHide.restart()
+            root.nudgeVolume(d)
         }
     }
+    function nudgeVolume(d) {
+        Player.volume = Math.max(0, Math.min(1, Player.volume + d))
+        volumeHint.opacity = 1
+        volumeHintHide.restart()
+    }
+    // Стрелки в мини-плеере (окно в фокусе): ←/→ — трек, ↑/↓ — громкость. В большом окне стрелки листают списки,
+    // там для этого Ctrl+стрелки
+    Shortcut { enabled: root.visible; sequence: "Left"; onActivated: Player.previous() }
+    Shortcut { enabled: root.visible; sequence: "Right"; onActivated: Player.next() }
+    Shortcut { enabled: root.visible; sequence: "Up"; onActivated: root.nudgeVolume(0.05) }
+    Shortcut { enabled: root.visible; sequence: "Down"; onActivated: root.nudgeVolume(-0.05) }
     Timer { id: volumeHintHide; interval: 1000; onTriggered: volumeHint.opacity = 0 }
     Rectangle {
         id: volumeHint
