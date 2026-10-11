@@ -4,6 +4,8 @@ import YaMusic.Core
 
 // Меню трека (ПКМ или «⋯»): волна, повтор, очередь, плейлисты, ссылки, переходы.
 // Один экземпляр на окно: show(track, point); действия разбирает владелец через triggered(id, track, item).
+// В мини-плеере сверху — то, чего в нём нет (перемешивание, повтор, поверх окон, развернуть);
+// эти пункты меню выполняет само.
 Item {
     id: root
 
@@ -14,10 +16,12 @@ Item {
 
     readonly property bool _isCurrent: Player.hasTrack && (track.trackId ?? "") !== "" && Player.trackId === track.trackId
     readonly property var _refs: (track.artistRefs ?? []).filter(r => r && r.id)
+    readonly property var _win: root.Window.window
+    readonly property bool _mini: !!_win && _win.layoutMode === "mini"
 
     function show(t, point) {
         track = t ?? ({})
-        if ((track.trackId ?? "") === "")
+        if ((track.trackId ?? "") === "" && !_mini)
             return
         menu.open(_items(), point)
     }
@@ -49,16 +53,48 @@ Item {
         return out
     }
 
+    function _miniItems() {
+        const onTop = _win && "pinnedOnTop" in _win
+        const items = [
+            { id: "mini:shuffle", text: "Перемешивать", icon: "shuffle", checked: Player.shuffle,
+              enabled: Player.hasTrack && Player.source !== "wave" },
+            { id: "mini:repeat", text: "Повтор", icon: Player.repeat === "one" ? "repeat_one" : "repeat",
+              checked: Player.repeat !== "off", enabled: Player.hasTrack }
+        ]
+        if (onTop)
+            items.push({ id: "mini:ontop", text: "Поверх всех окон", icon: "push_pin", checked: !!_win.pinnedOnTop })
+        if (_win && typeof _win.expandFromMini === "function")
+            items.push({ id: "mini:expand", text: "Развернуть", icon: "open_in_full" })
+        return items
+    }
+
+    function _miniAction(id) {
+        if (id === "mini:shuffle")
+            Player.shuffle = !Player.shuffle
+        else if (id === "mini:repeat")
+            Player.cycleRepeat()
+        else if (id === "mini:ontop" && _win && "pinnedOnTop" in _win)
+            _win.pinnedOnTop = !_win.pinnedOnTop
+        else if (id === "mini:expand" && _win && typeof _win.expandFromMini === "function")
+            _win.expandFromMini()
+    }
+
     function _items() {
+        const mini = _mini ? _miniItems() : []
+        if ((track.trackId ?? "") === "")
+            return mini
+        if (mini.length > 0)
+            mini.push({ separator: true })
         const id = track.trackId
         const hasAlbum = (track.albumId ?? "") !== ""
         const pinned = Library.isWavePinned("track:" + id)
-        const items = [
+        const items = mini.concat([
             { id: "pin", text: pinned ? "Открепить Мою волну" : "Закрепить Мою волну", icon: "push_pin" },
             { id: "wave", text: "Моя волна по треку", icon: "radio" },
             { separator: true }
-        ]
-        if (_isCurrent)
+        ])
+        // в мини-режиме повтор уже в верхней группе
+        if (_isCurrent && !_mini)
             items.push({ id: "repeat", text: "Повторять", icon: Player.repeat === "one" ? "repeat_one" : "repeat",
                          checked: Player.repeat !== "off" })
         items.push(
@@ -79,6 +115,11 @@ Item {
     Menu {
         id: menu
         anchors.fill: parent
-        onTriggered: (id, item) => root.triggered(id, root.track, item)
+        onTriggered: (id, item) => {
+            if (id.startsWith("mini:"))
+                root._miniAction(id)
+            else
+                root.triggered(id, root.track, item)
+        }
     }
 }
