@@ -10,6 +10,9 @@ Item {
 
     required property var router
     required property Window window
+    // узкое окно: боковая панель спрятана в шторку, открывается этой кнопкой
+    property bool showMenuButton: false
+    signal menuClicked()
 
     implicitHeight: 64
 
@@ -39,11 +42,17 @@ Item {
         anchors.rightMargin: 16
         spacing: 8
 
+        IconButton {
+            visible: root.showMenuButton
+            icon: "menu"
+            onClicked: root.menuClicked()
+        }
+
         // Без «назад» кнопка схлопывается, и заголовок стоит у левого края
         Item {
             Layout.preferredWidth: back.enabled ? back.implicitWidth : 0
             // заголовок встаёт по левому краю содержимого страницы (отступ 32)
-            Layout.rightMargin: back.enabled ? 0 : 8
+            Layout.rightMargin: back.enabled || root.showMenuButton ? 0 : 8
             Layout.preferredHeight: back.implicitHeight
             Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.motion.spatialFast; easing.type: Easing.OutCubic } }
             Behavior on Layout.rightMargin { NumberAnimation { duration: Theme.motion.spatialFast; easing.type: Easing.OutCubic } }

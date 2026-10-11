@@ -13,6 +13,15 @@ Item {
 
     required property var router
     property bool compact: false
+    // Шторка (узкое окно): в раскладке ширины не занимает, по openDrawer() выезжает поверх контента
+    property bool drawer: false
+    property bool drawerOpen: false
+    readonly property bool rail: compact && !drawer
+
+    function openDrawer() { drawerOpen = true; panel.forceActiveFocus() }
+    function closeDrawer() { drawerOpen = false }
+    function go(name, props) { closeDrawer(); router.reset(name, props) }
+    onDrawerChanged: if (!drawer) drawerOpen = false
 
     readonly property real expandedWidth: 264
     readonly property real railWidth: 80
@@ -26,14 +35,55 @@ Item {
         { name: "liked", icon: "favorite", text: "Мне нравится" }
     ]
 
-    implicitWidth: compact ? railWidth : expandedWidth
-    clip: true
+    implicitWidth: drawer ? 0 : rail ? railWidth : expandedWidth
+    clip: !drawer
+    z: drawer ? 50 : 0
 
     component FadeLabel: Label {
-        opacity: root.compact ? 0 : 1
+        opacity: root.rail ? 0 : 1
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsFast } }
     }
+
+    // Затемнение под шторкой — на всё окно (координаты пересчитываются при открытии)
+    Rectangle {
+        id: scrim
+        property point origin: Qt.point(0, 0)
+        visible: root.drawer && opacity > 0
+        x: -origin.x
+        y: -origin.y
+        width: root.Window.width
+        height: root.Window.height
+        color: Theme.scrim
+        opacity: root.drawerOpen ? 0.32 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsDefault } }
+        MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; onClicked: root.closeDrawer(); onWheel: w => w.accepted = true }
+    }
+    onDrawerOpenChanged: if (drawerOpen) scrim.origin = root.mapToItem(null, 0, 0)
+
+    Item {
+        id: panel
+        width: root.drawer ? root.expandedWidth : root.width
+        height: root.height
+        x: !root.drawer ? 0 : root.drawerOpen ? 0 : -width - 24
+        visible: !root.drawer || root.drawerOpen || x > -width - 24
+        Behavior on x {
+            enabled: root.drawer
+            NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasizedDecelerate }
+        }
+        Keys.onEscapePressed: root.closeDrawer()
+
+        // Карточка шторки: скруглён правый край (MD3 modal navigation drawer)
+        Rectangle {
+            id: drawerBg
+            visible: root.drawer
+            anchors.fill: parent
+            anchors.leftMargin: -Theme.shape.extraLarge
+            radius: Theme.shape.extraLarge
+            color: Theme.surfaceContainerLow
+        }
+        Elevation { target: drawerBg; level: 1 }
+        MouseArea { visible: root.drawer; anchors.fill: parent; acceptedButtons: Qt.AllButtons; onWheel: w => w.accepted = true }
 
     ColumnLayout {
         anchors.fill: parent
@@ -52,8 +102,8 @@ Item {
             IconButton {
                 x: 40 - root.margin - width / 2
                 anchors.verticalCenter: parent.verticalCenter
-                icon: root.compact ? "menu" : "menu_open"
-                onClicked: Settings.sidebarCollapsed = !Settings.sidebarCollapsed
+                icon: root.rail ? "menu" : "menu_open"
+                onClicked: root.drawer ? root.closeDrawer() : Settings.sidebarCollapsed = !Settings.sidebarCollapsed
             }
             FadeLabel {
                 x: root.iconInset + 28 + 8
@@ -70,13 +120,13 @@ Item {
             NavItem {
                 required property var modelData
                 Layout.fillWidth: true
-                compact: root.compact
+                compact: root.rail
                 iconInset: root.iconInset
                 labelWidth: root.labelWidth
                 icon: modelData.icon
                 text: modelData.text
                 selected: root.router.rootName === modelData.name
-                onClicked: root.router.reset(modelData.name)
+                onClicked: root.go(modelData.name)
             }
         }
 
@@ -96,8 +146,8 @@ Item {
                 color: Theme.fgSurfaceVariant
             }
             WavyDivider {
-                x: root.compact ? root.iconInset : sectionLabel.x + sectionLabel.implicitWidth + 10
-                width: parent.width - x - (root.compact ? root.iconInset : 40)
+                x: root.rail ? root.iconInset : sectionLabel.x + sectionLabel.implicitWidth + 10
+                width: parent.width - x - (root.rail ? root.iconInset : 40)
                 anchors.verticalCenter: parent.verticalCenter
                 Behavior on x { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
             }
@@ -108,7 +158,7 @@ Item {
                 size: "xs"
                 iconColor: Theme.primary
                 enabled: false
-                opacity: root.compact ? 0 : 1
+                opacity: root.rail ? 0 : 1
                 visible: opacity > 0
                 Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsFast } }
             }
@@ -149,7 +199,7 @@ Item {
             delegate: NavItem {
                 required property var model
                 width: ListView.view.width
-                compact: root.compact
+                compact: root.rail
                 iconInset: root.iconInset
                 labelWidth: root.labelWidth
                 text: model.title
@@ -157,7 +207,7 @@ Item {
                 imageSource: model.cover
                 selected: root.router.currentName === "playlist" && root.router.current.props.kind === model.kind
                           && root.router.current.props.uid === model.uid
-                onClicked: root.router.reset("playlist", { uid: model.uid, kind: model.kind, playlistTitle: model.title, cover: model.cover })
+                onClicked: root.go("playlist", { uid: model.uid, kind: model.kind, playlistTitle: model.title, cover: model.cover })
             }
             SmoothScroll { flickable: playlistList; wheelStep: Settings.wheelStep; showScrollBar: false }
         }
@@ -166,16 +216,16 @@ Item {
 
         // В рейле настройки — отдельным пунктом; в развёрнутом виде — кнопкой в карточке аккаунта
         NavItem {
-            visible: root.compact
+            visible: root.rail
             Layout.fillWidth: true
             Layout.topMargin: 8
-            compact: root.compact
+            compact: root.rail
             iconInset: root.iconInset
             labelWidth: root.labelWidth
             icon: "settings"
             text: "Настройки"
             selected: root.router.rootName === "settings"
-            onClicked: root.router.reset("settings")
+            onClicked: root.go("settings")
         }
 
         // Карточка аккаунта: аватар на оси рейла, одна высота в обоих режимах
@@ -203,7 +253,7 @@ Item {
                 x: avatar.x + avatar.width + 12
                 anchors.verticalCenter: parent.verticalCenter
                 width: root.expandedWidth - 2 * root.margin - x - 12 - settingsButton.width
-                opacity: root.compact ? 0 : 1
+                opacity: root.rail ? 0 : 1
                 visible: opacity > 0
                 Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsFast } }
                 Label {
@@ -225,7 +275,7 @@ Item {
             StateLayer {
                 anchors.fill: parent
                 radius: Theme.shape.large
-                onClicked: root.router.reset("account")
+                onClicked: root.go("account")
             }
 
             IconButton {
@@ -237,11 +287,12 @@ Item {
                 checkable: true
                 autoToggle: false
                 checked: root.router.rootName === "settings"
-                opacity: root.compact ? 0 : 1
+                opacity: root.rail ? 0 : 1
                 visible: opacity > 0
                 Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsFast } }
-                onClicked: root.router.reset("settings")
+                onClicked: root.go("settings")
             }
         }
+    }
     }
 }

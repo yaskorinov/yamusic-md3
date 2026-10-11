@@ -8,6 +8,9 @@ Item {
     id: root
 
     readonly property Item coverItem: coverBox
+    // узкое окно: одна строка — обложка, трек, «играть» + «дальше», лайк и «⋯»;
+    // режимы, громкость и панели — в полноэкранном плеере
+    property bool compact: false
     signal openNowPlaying(point coverCenter)   // центр обложки в координатах окна — отсюда растёт блоб
 
     implicitHeight: 72
@@ -46,7 +49,7 @@ Item {
 
         // Управление
         IconButton {
-            visible: root.roomForModes
+            visible: root.roomForModes && !root.compact
             icon: "shuffle"
             checkable: true
             autoToggle: false
@@ -54,7 +57,7 @@ Item {
             enabled: Player.hasTrack && Player.source !== "wave"
             onClicked: Player.shuffle = !Player.shuffle
         }
-        IconButton { icon: "skip_previous"; iconColor: Theme.fgSurface; enabled: Player.hasTrack; onClicked: Player.previous() }
+        IconButton { visible: !root.compact; icon: "skip_previous"; iconColor: Theme.fgSurface; enabled: Player.hasTrack; onClicked: Player.previous() }
         Item {
             implicitWidth: 52
             implicitHeight: 52
@@ -75,7 +78,7 @@ Item {
         }
         IconButton { icon: "skip_next"; iconColor: Theme.fgSurface; enabled: Player.hasTrack; onClicked: Player.next() }
         IconButton {
-            visible: root.roomForModes
+            visible: root.roomForModes && !root.compact
             icon: Player.repeat === "one" ? "repeat_one" : "repeat"
             checkable: true
             autoToggle: false
@@ -183,7 +186,7 @@ Item {
 
         // Оценка: «не рекомендовать» — только в волне (там она влияет на подбор), лайк — всегда
         IconButton {
-            visible: Player.source === "wave"
+            visible: Player.source === "wave" && !root.compact
             icon: "thumb_down"
             enabled: Player.hasTrack
             onClicked: { Library.dislike(Player.track); Player.next() }
@@ -191,7 +194,7 @@ Item {
         LikeButton { track: Player.track }
         IconButton {
             id: miniMore
-            visible: root.roomForMenu
+            visible: root.roomForMenu || root.compact
             icon: "more_horiz"
             iconSize: 30
             iconWeight: 700
@@ -202,10 +205,11 @@ Item {
                 Catalog.requestTrackMenu(Player.track, p.x, p.y)
             }
         }
-        Item { implicitWidth: 8 }
+        Item { implicitWidth: 8; visible: !root.compact }
 
         // Панели и громкость
         IconButton {
+            visible: !root.compact
             icon: "title"
             checkable: true
             autoToggle: false
@@ -213,15 +217,16 @@ Item {
             onClicked: root._togglePanel("lyrics")
         }
         IconButton {
+            visible: !root.compact
             icon: "queue_music"
             checkable: true
             autoToggle: false
             checked: Settings.rightPanelOpen && Settings.rightPanelTab === "queue"
             onClicked: root._togglePanel("queue")
         }
-        Icon { visible: root.roomForVolume; Layout.leftMargin: 8; name: Player.volume > 0.5 ? "volume_up" : Player.volume > 0 ? "volume_down" : "volume_off"; size: 20 }
+        Icon { visible: root.roomForVolume && !root.compact; Layout.leftMargin: 8; name: Player.volume > 0.5 ? "volume_up" : Player.volume > 0 ? "volume_down" : "volume_off"; size: 20 }
         Slider {
-            visible: root.roomForVolume
+            visible: root.roomForVolume && !root.compact
             Layout.preferredWidth: 96
             trackHeight: 10
             handleHeight: 28

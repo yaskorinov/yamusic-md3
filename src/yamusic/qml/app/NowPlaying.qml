@@ -14,6 +14,9 @@ Item {
     property bool open: false
     property point origin: Qt.point(width / 2, height - 60)
     property string tab: "lyrics"          // lyrics | queue
+    // узкое окно: одна колонка; текст/очередь открываются вместо плеера (sheetOpen) переключателем сверху
+    property bool compact: false
+    property bool sheetOpen: false
     property real reveal: open ? 1 : 0
     readonly property bool animating: revealAnim.running
     readonly property Item coverItem: bigCover
@@ -33,6 +36,7 @@ Item {
         if (!open)
             blob.jumpTo(_windowShapes[Math.floor(Math.random() * _windowShapes.length)])
         open = true
+        sheetOpen = false
         forceActiveFocus()
     }
     function hide() {
@@ -41,7 +45,7 @@ Item {
 
     visible: reveal > 0
     focus: open
-    Keys.onEscapePressed: hide()
+    Keys.onEscapePressed: compact && sheetOpen ? sheetOpen = false : hide()
 
     Behavior on reveal {
         NumberAnimation {
@@ -131,8 +135,16 @@ Item {
             ButtonGroup {
                 model: [{ icon: "title" }, { icon: "queue_music" }]
                 autoSelect: false
-                currentIndex: root.tab === "lyrics" ? 0 : 1
-                onActivated: i => root.tab = i === 0 ? "lyrics" : "queue"
+                currentIndex: root.compact && !root.sheetOpen ? -1 : root.tab === "lyrics" ? 0 : 1
+                onActivated: i => {
+                    const next = i === 0 ? "lyrics" : "queue"
+                    if (root.compact && root.sheetOpen && root.tab === next) {
+                        root.sheetOpen = false
+                    } else {
+                        root.tab = next
+                        root.sheetOpen = true
+                    }
+                }
             }
         }
 
@@ -141,17 +153,19 @@ Item {
             anchors.bottom: parent.bottom
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.margins: 32
+            anchors.margins: root.compact ? 16 : 32
             anchors.topMargin: 8
             spacing: 48
 
             // ---- Колонка плеера (слева, с отступом от края): обложка и управление ----
             ColumnLayout {
                 id: left
+                visible: !root.compact || !root.sheetOpen
                 Layout.fillHeight: true
-                Layout.leftMargin: Math.max(16, root.width * 0.06)
-                Layout.preferredWidth: Math.min(460, root.width * 0.42)
-                Layout.maximumWidth: Layout.preferredWidth
+                Layout.fillWidth: root.compact
+                Layout.leftMargin: root.compact ? 0 : Math.max(16, root.width * 0.06)
+                Layout.preferredWidth: root.compact ? -1 : Math.min(460, root.width * 0.42)
+                Layout.maximumWidth: root.compact ? Number.POSITIVE_INFINITY : Layout.preferredWidth
                 spacing: 12
 
                 Item { Layout.fillHeight: true }
@@ -175,12 +189,13 @@ Item {
 
                 NowPlayingCover {
                     id: bigCover
-                    // Всё остальное в колонке занимает ~360 px — обложка берёт оставшееся
-                    readonly property real s: Math.max(160, Math.min(left.width, left.height - 360, 440))
+                    // Всё остальное в колонке занимает ~360 px (в узком окне ~310) — обложка берёт оставшееся
+                    readonly property real s: root.compact ? Math.max(96, Math.min(left.width, left.parent.height - 316, 360))
+                                                           : Math.max(160, Math.min(left.width, left.height - 360, 440))
                     Layout.alignment: Qt.AlignHCenter
                     Layout.preferredWidth: s
                     Layout.preferredHeight: s
-                    Layout.bottomMargin: 20
+                    Layout.bottomMargin: root.compact ? 12 : 20
                     source: Player.cover.replace("400x400", "800x800")
                     restShape: Player.playing ? "cookie12" : "square"
                     direction: Player.direction
@@ -223,7 +238,7 @@ Item {
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignHCenter
                     text: Player.title
-                    type: "headlineMedium"
+                    type: root.compact ? "headlineSmall" : "headlineMedium"
                     weight: 700
                     opacity: left.infoIn
                     transform: Translate { y: (1 - left.infoIn) * 14 }
@@ -301,7 +316,7 @@ Item {
                     }
                     IconButton { icon: "skip_previous"; size: "m"; iconColor: Theme.fgSurface; onClicked: Player.previous() }
                     PlayButton {
-                        size: 96
+                        size: root.compact ? 72 : 96
                         playing: Player.playing
                         containerColor: Theme.primaryContainer
                         iconColor: Theme.fgPrimaryContainer
@@ -332,7 +347,7 @@ Item {
                         size: 22
                     }
                     Slider {
-                        Layout.preferredWidth: 220
+                        Layout.preferredWidth: root.compact ? Math.min(220, left.width - 260) : 220
                         value: Player.volume
                         trackHeight: 14
                         handleHeight: 36
@@ -359,6 +374,7 @@ Item {
             // Смена вкладки — shared axis X (порядок как у переключателя: текст слева, очередь справа):
             // уходящая уезжает в свою сторону и гаснет, новая выезжает с другой.
             Item {
+                visible: !root.compact || root.sheetOpen
                 Layout.fillWidth: true
                 Layout.fillHeight: true
 

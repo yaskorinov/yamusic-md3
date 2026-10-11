@@ -138,11 +138,11 @@ Item {
                 x: 16
                 y: 24     // запас сверху: фигура за обложкой больше неё и не должна упираться в край списка
                 width: parent.width - 32
-                spacing: 28
+                spacing: page.width < 560 ? 18 : 28
 
                 // Обложка или фигура с иконкой; за обложкой — медленно вращающаяся фигура
                 Item {
-                    Layout.preferredWidth: page.width > 760 ? 184 : 128
+                    Layout.preferredWidth: page.width > 760 ? 184 : page.width < 560 ? 96 : 128
                     Layout.preferredHeight: Layout.preferredWidth
                     Layout.alignment: Qt.AlignTop
                     MorphShape {
@@ -193,8 +193,10 @@ Item {
                     Label {
                         Layout.fillWidth: true
                         text: page.title
-                        type: page.width > 760 ? "displayMedium" : "displaySmall"
+                        type: page.width > 760 ? "displayMedium" : page.width < 560 ? "headlineMedium" : "displaySmall"
                         weight: 700
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
                     }
                     Flow {
                         visible: (page.heroArtistRefs ?? []).length > 0
@@ -220,7 +222,9 @@ Item {
                         type: "bodyLarge"
                         color: Theme.fgSurfaceVariant
                     }
-                    RowLayout {
+                    // в узком окне кнопки переносятся, а не распирают шапку
+                    Flow {
+                        Layout.fillWidth: true
                         Layout.topMargin: 14
                         spacing: 12
                         visible: page.model !== null && page.model.count > 0

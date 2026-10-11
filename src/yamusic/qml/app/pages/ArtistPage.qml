@@ -46,10 +46,10 @@ Page {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            spacing: 32
+            spacing: page.width < 560 ? 20 : 32
 
             MorphImage {
-                Layout.preferredWidth: page.width > 760 ? 208 : 144
+                Layout.preferredWidth: page.width > 760 ? 208 : page.width < 560 ? 104 : 144
                 Layout.preferredHeight: Layout.preferredWidth
                 source: (page.info.cover ?? "").replace("400x400", "600x600")
                 shape: page.playingHere && Player.playing ? "cookie12" : "circle"
@@ -63,8 +63,10 @@ Page {
                 Label {
                     Layout.fillWidth: true
                     text: page.info.name ?? ""
-                    type: page.width > 760 ? "displayMedium" : "displaySmall"
+                    type: page.width > 760 ? "displayMedium" : page.width < 560 ? "headlineMedium" : "displaySmall"
                     weight: 700
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 2
                 }
                 Label {
                     visible: text !== ""
@@ -74,7 +76,9 @@ Page {
                     type: "bodyLarge"
                     color: Theme.fgSurfaceVariant
                 }
-                RowLayout {
+                // в узком окне кнопки переносятся, а не распирают шапку
+                Flow {
+                    Layout.fillWidth: true
                     Layout.topMargin: 14
                     spacing: 12
                     visible: page.artist && page.artist.popular.count > 0

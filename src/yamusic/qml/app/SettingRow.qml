@@ -3,7 +3,8 @@ import QtQuick.Layouts
 import Md3
 
 // Строка настройки: заголовок + пояснение слева, контрол справа (кладётся внутрь).
-RowLayout {
+// Если контрол не помещается рядом с подписью (узкое окно) — он уходит под неё.
+GridLayout {
     id: root
 
     property string title
@@ -11,7 +12,11 @@ RowLayout {
     default property alias control: slot.data
 
     Layout.fillWidth: true
-    spacing: 24
+    // ширину задаёт родитель: иначе неявная ширина двух колонок распирает строку и она не переносится
+    Layout.preferredWidth: 0
+    columns: width > 0 && width < slot.implicitWidth + 200 ? 1 : 2
+    columnSpacing: 24
+    rowSpacing: 10
 
     ColumnLayout {
         Layout.fillWidth: true

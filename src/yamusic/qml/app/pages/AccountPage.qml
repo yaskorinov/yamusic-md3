@@ -186,10 +186,12 @@ Page {
 
             ColumnLayout {
                 Layout.fillWidth: true
+                Layout.preferredWidth: 0      // чипы переносятся, а не распирают карточку
                 spacing: 4
                 Label { Layout.fillWidth: true; text: Auth.account.displayName ?? ""; type: "headlineSmall"; weight: 600 }
                 Label { Layout.fillWidth: true; text: Auth.account.login ?? ""; type: "bodyMedium"; color: Theme.fgSurfaceVariant }
-                RowLayout {
+                Flow {
+                    Layout.fillWidth: true
                     Layout.topMargin: 6
                     spacing: 8
                     Chip {
@@ -202,8 +204,10 @@ Page {
                         icon: Auth.tokenStorage === "keyring" ? "lock" : "description"
                     }
                 }
+                // узкая карточка: кнопка под подписями, а не справа
+                Button { visible: signedInRow.width < 460; Layout.topMargin: 8; text: "Выйти"; icon: "logout"; style: "outlined"; onClicked: Auth.signOut() }
             }
-            Button { text: "Выйти"; icon: "logout"; style: "outlined"; onClicked: Auth.signOut() }
+            Button { visible: signedInRow.width >= 460; text: "Выйти"; icon: "logout"; style: "outlined"; onClicked: Auth.signOut() }
         }
     }
 

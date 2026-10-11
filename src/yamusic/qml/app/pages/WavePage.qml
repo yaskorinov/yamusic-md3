@@ -24,19 +24,57 @@ Item {
     // ---- Геометрия сцены ----
     readonly property real sceneHeight: height - 104            // внизу — плавающий мини-плеер
     readonly property real cx: width / 2
-    readonly property real cy: sceneHeight / 2
-    readonly property real rx: Math.max(240, Math.min(width / 2 - 100, 640))
-    readonly property real ry: Math.max(170, Math.min(sceneHeight / 2 - 70, 340))
+    readonly property real cy: chipMode ? heroSize / 2 + 8 : sceneHeight / 2
+    // Орбита не помещается даже с мелкими кружками (узкое или низкое окно): фигура сверху,
+    // настройки — группами тональных чипов под ней, со своей прокруткой
+    readonly property bool chipMode: geo.tight && flat.length > 0
+    // Обычная орбита; если она не влезает в страницу (узкое или низкое окно) — подбор: кружки мельчают,
+    // кольца поджимаются к краям, пока всё не уместится (см. _fit)
+    readonly property var geo: _fit(width, sceneHeight, flat.length + 3)
+    readonly property real rx: geo.rx
+    readonly property real ry: geo.ry
     readonly property real perimeter: 2 * Math.PI * Math.sqrt((rx * rx + ry * ry) / 2)
     readonly property real spacing: perimeter / (flat.length + 3)
-    readonly property real bubble: Math.max(78, Math.min(spacing - 10, 116))
+    readonly property real bubble: geo.bubble
     // Соседи стоят чуть ближе и чуть дальше от центра — живее, чем ровная нитка. В тесном окне разбег
     // больше: кружки не мельчают, а расходятся на два кольца.
-    readonly property real zig: Math.max(0.06, Math.sqrt(Math.max(0, Math.pow(bubble + 6, 2) - spacing * spacing))
-                                               / (2 * Math.min(rx, ry)))
+    readonly property real zig: geo.zig
     // между центром и внутренним кольцом должна помещаться прилипшая фигура
-    readonly property real heroSize: flat.length === 0 ? Math.min(ry * 1.2, 300)     // без входа настроек нет
-        : Math.max(140, Math.min(2 * (ry * (1 - zig) - bubble * 1.4 - 6), rx * 0.8, 320))
+    readonly property real heroSize: chipMode ? Math.max(88, Math.min(140, sceneHeight * 0.3, width * 0.4))
+        : flat.length === 0 ? Math.min(ry * 1.2, 300)     // без входа настроек нет
+        : Math.max(geo.tight ? 84 : 140, Math.min(2 * (ry * (1 - zig) - bubble * 1.4 - 6), rx * 0.8, 320))
+
+    function _zig(b, rx, ry, slots) {
+        const s = 2 * Math.PI * Math.sqrt((rx * rx + ry * ry) / 2) / slots
+        return Math.max(0.06, Math.sqrt(Math.max(0, Math.pow(b + 6, 2) - s * s)) / (2 * Math.min(rx, ry)))
+    }
+    function _fit(w, h, slots) {
+        // как было: не трогаем раскладку там, где она помещается
+        let rx = Math.max(240, Math.min(w / 2 - 100, 640))
+        let ry = Math.max(170, Math.min(h / 2 - 70, 340))
+        const s0 = 2 * Math.PI * Math.sqrt((rx * rx + ry * ry) / 2) / slots
+        let b = Math.max(78, Math.min(s0 - 10, 116))
+        let z = _zig(b, rx, ry, slots)
+        const pad = 6 + 7                  // поле до края + покачивание кружка
+        if (rx * (1 + z) + b / 2 + pad <= w / 2 && ry * (1 + z) + b / 2 + pad <= h / 2)
+            return { rx: rx, ry: ry, bubble: b, zig: z, tight: false }
+        let best = null
+        for (b = Math.min(b, 96); b >= 44; b -= 4) {
+            z = 0.06
+            for (let i = 0; i < 4; i++) {
+                rx = Math.max(40, Math.min(640, (w / 2 - pad - b / 2) / (1 + z)))
+                ry = Math.max(40, Math.min(340, (h / 2 - pad - b / 2) / (1 + z)))
+                z = _zig(b, rx, ry, slots)
+            }
+            rx = Math.max(40, Math.min(640, (w / 2 - pad - b / 2) / (1 + z)))
+            ry = Math.max(40, Math.min(340, (h / 2 - pad - b / 2) / (1 + z)))
+            best = { rx: rx, ry: ry, bubble: b, zig: z, tight: true }
+            const hero = 2 * (ry * (1 - z) - b * 1.4 - 6)
+            if (z <= 0.3 && hero >= 84)
+                break
+        }
+        return best
+    }
 
     // ---- Что летает: группы → плоский список (заголовки групп тоже стоят на орбите) ----
     // Тональные пары Material You: в покое — контейнер группы с её on-цветом, выбранная — основной цвет
@@ -122,11 +160,12 @@ Item {
     NumberAnimation on intro { id: introAnim; from: 0; to: 1; duration: 1100; easing.type: Easing.Linear }
     Connections {
         target: Wave
-        function onGroupsChanged() { introAnim.restart() }
+        function onGroupsChanged() { introAnim.restart(); chipScroll.contentY = 0 }
     }
 
     // Орбита — пунктир
     Shape {
+        visible: !page.chipMode
         x: page.cx
         y: page.cy
         opacity: page.flat.length > 0 ? Math.min(1, page.intro * 2) : 0
@@ -198,6 +237,7 @@ Item {
 
         Item {
             id: body
+            visible: !page.chipMode
             required property var modelData
             required property int index
 
@@ -255,7 +295,7 @@ Item {
                 width: parent.width * 0.8
                 horizontalAlignment: Text.AlignHCenter
                 text: body.modelData.label
-                type: page.bubble >= 96 ? "labelLarge" : "labelMedium"
+                type: page.bubble >= 96 ? "labelLarge" : page.bubble >= 66 ? "labelMedium" : "labelSmall"
                 weight: body.selected ? 700 : 500
                 fontSizeMode: Text.HorizontalFit
                 minimumPixelSize: 10
@@ -273,6 +313,106 @@ Item {
         }
     }
 
+    // ---- Тесное окно: группы чипов под фигурой ----
+    Flickable {
+        id: chipScroll
+        visible: page.chipMode
+        anchors.left: parent.left
+        anchors.right: parent.right
+        y: heroBox.y + heroBox.height + 12
+        height: Math.max(0, page.sceneHeight - y)
+        contentWidth: width
+        contentHeight: chipColumn.implicitHeight + 16
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        // группы приходят из сети уже после раскладки — список всегда начинается с первой группы
+        onVisibleChanged: if (visible) contentY = 0
+
+        Column {
+            id: chipColumn
+            x: 16
+            width: chipScroll.width - 32
+            spacing: 12
+
+            Label {
+                visible: Wave.errorText !== ""
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                text: Wave.errorText
+                type: "bodyMedium"
+                color: Theme.error
+            }
+
+            Repeater {
+                model: page.signedIn ? Wave.groups : []
+                Column {
+                    id: group
+                    required property var modelData
+                    readonly property var style: page.groupStyle[modelData.key] ?? page.groupStyle.context
+                    width: chipColumn.width
+                    spacing: 6
+                    Label {
+                        text: group.modelData.title
+                        type: "titleSmall"
+                        weight: 600
+                        color: Theme[group.style.color]
+                    }
+                    Flow {
+                        width: parent.width
+                        spacing: 6
+                        Repeater {
+                            model: group.modelData.items
+                            Item {
+                                id: chip
+                                required property var modelData
+                                readonly property bool selected: Wave.selection[group.modelData.key] === modelData.seed
+                                implicitWidth: chipRow.implicitWidth + 28
+                                implicitHeight: 36
+                                // выбранный чип — основной цвет группы, менее круглый и с её фигурой
+                                Rectangle {
+                                    id: chipBg
+                                    anchors.fill: parent
+                                    radius: chip.selected ? 10 : height / 2
+                                    color: chip.selected ? Theme[group.style.color] : Theme[group.style.box]
+                                    Behavior on radius { NumberAnimation { duration: Theme.motion.spatialFast; easing.type: Easing.OutBack } }
+                                    Behavior on color { enabled: !Theme.transitioning; ColorAnimation { duration: Theme.motion.effectsFast } }
+                                }
+                                Row {
+                                    id: chipRow
+                                    anchors.centerIn: parent
+                                    spacing: 6
+                                    MorphShape {
+                                        visible: chip.selected
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 14
+                                        height: 14
+                                        shape: group.style.shape
+                                        color: Theme[group.style.fg]
+                                    }
+                                    Label {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: chip.modelData.label
+                                        type: "labelLarge"
+                                        weight: chip.selected ? 700 : 500
+                                        color: chip.selected ? Theme[group.style.fg] : Theme[group.style.fgBox]
+                                    }
+                                }
+                                StateLayer {
+                                    anchors.fill: parent
+                                    radius: chipBg.radius
+                                    color: chip.selected ? Theme[group.style.fg] : Theme[group.style.fgBox]
+                                    onClicked: Wave.select(group.modelData.key, chip.modelData.seed)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    SmoothScroll { flickable: chipScroll; wheelStep: Settings.wheelStep; visible: chipScroll.visible }
+
     // ---- Подпись в свободной дуге внизу орбиты: что играет / подсказка ----
     ColumnLayout {
         x: page.cx - width / 2
@@ -280,7 +420,7 @@ Item {
         width: page.flat.length > 0 ? Math.max(200, Math.min(page.slots.gap, 440)) : Math.min(page.width - 64, 440)
         // в узком окне свободная дуга короче подписи — та наезжала бы на кружки; остаётся только ошибка
         readonly property bool fits: page.flat.length === 0 || page.slots.gap >= 200 || Wave.errorText !== ""
-        visible: fits
+        visible: fits && !page.chipMode
         opacity: page.flat.length > 0 ? Math.min(1, page.intro * 2) : 1
         spacing: 12
         Label {
