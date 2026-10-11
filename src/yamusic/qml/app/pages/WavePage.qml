@@ -25,13 +25,13 @@ Item {
     readonly property real sceneHeight: height - 104            // внизу — плавающий мини-плеер
     readonly property real cx: width / 2
     readonly property real cy: sceneHeight / 2 + (chipHero / 2 + 8 - sceneHeight / 2) * modeT
-    // Орбита не помещается даже с мелкими кружками (узкое или низкое окно): фигура сверху,
+    // Орбита не помещается даже с поджатыми кружками (узкое или низкое окно): фигура сверху,
     // настройки — группами тональных чипов под ней, со своей прокруткой. Обратно к орбите — только
     // когда она влезает с запасом, иначе у самой границы раскладка мигала бы при растягивании окна.
     property bool chipMode: false
     function _updateMode() {
         const n = flat.length
-        chipMode = n > 0 && (chipMode ? _fit(width - 32, sceneHeight - 32, n + 3).tight : geo.tight)
+        chipMode = n > 0 && !(chipMode ? _fit(width - 32, sceneHeight - 32, n + 3).fits : geo.fits)
     }
     onWidthChanged: _updateMode()
     onSceneHeightChanged: _updateMode()
@@ -72,7 +72,7 @@ Item {
         let z = _zig(b, rx, ry, slots)
         const pad = 6 + 7                  // поле до края + покачивание кружка
         if (rx * (1 + z) + b / 2 + pad <= w / 2 && ry * (1 + z) + b / 2 + pad <= h / 2)
-            return { rx: rx, ry: ry, bubble: b, zig: z, tight: false }
+            return { rx: rx, ry: ry, bubble: b, zig: z, tight: false, fits: true }
         let best = null
         for (b = Math.min(b, 96); b >= 44; b -= 4) {
             z = 0.06
@@ -83,10 +83,13 @@ Item {
             }
             rx = Math.max(40, Math.min(640, (w / 2 - pad - b / 2) / (1 + z)))
             ry = Math.max(40, Math.min(340, (h / 2 - pad - b / 2) / (1 + z)))
-            best = { rx: rx, ry: ry, bubble: b, zig: z, tight: true }
+            best = { rx: rx, ry: ry, bubble: b, zig: z, tight: true, fits: false }
             const hero = 2 * (ry * (1 - z) - b * 1.4 - 6)
-            if (z <= 0.3 && hero >= 84)
+            if (z <= 0.3 && hero >= 84) {
+                // поджатая орбита годится, пока подписи в кружках читаются; мельче — уже чипы
+                best.fits = b >= 64
                 break
+            }
         }
         return best
     }
