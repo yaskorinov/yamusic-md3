@@ -15,13 +15,30 @@ Item {
     property bool compact: false
     // Шторка (узкое окно): в раскладке ширины не занимает, по openDrawer() выезжает поверх контента
     property bool drawer: false
+    // Открыта поверх контента: шторка (drawer) или раскрытый рейл, когда рейл навязан шириной окна
     property bool drawerOpen: false
-    readonly property bool rail: compact && !drawer
+    // Рейл из-за ширины окна (а не свёрнут вручную): кнопка меню раскрывает панель поверх контента
+    readonly property bool forcedRail: compact && !drawer && !Settings.sidebarCollapsed
+    // Закрывается анимацией — до её конца карточка шторки ещё видна
+    property bool closing: false
+    // Переход в шторку: место в раскладке сжимается анимацией (Main.qml), а рейл уезжает влево вместе с ним
+    readonly property bool collapsing: drawer && !drawerOpen && !closing && width > 0.5
+    // Панель поверх контента (карточка шторки, затемнение, своя ширина 264)
+    readonly property bool floating: drawer ? !collapsing : (drawerOpen || closing)
+    readonly property bool rail: (compact && !drawer && !drawerOpen) || collapsing
 
-    function openDrawer() { drawerOpen = true; panel.forceActiveFocus() }
-    function closeDrawer() { drawerOpen = false }
+    function openDrawer() { closeTimer.stop(); closing = false; drawerOpen = true; panel.forceActiveFocus() }
+    function closeDrawer() {
+        if (!drawerOpen)
+            return
+        closing = true
+        drawerOpen = false
+        closeTimer.restart()
+    }
     function go(name, props) { closeDrawer(); router.reset(name, props) }
-    onDrawerChanged: if (!drawer) drawerOpen = false
+    onDrawerChanged: { drawerOpen = false; closing = false }
+    onCompactChanged: if (!compact && !drawer) { drawerOpen = false; closing = false }
+    Timer { id: closeTimer; interval: Theme.motion.spatialDefault + 40; onTriggered: root.closing = false }
 
     readonly property real expandedWidth: 264
     readonly property real railWidth: 80
@@ -35,9 +52,9 @@ Item {
         { name: "liked", icon: "favorite", text: "Мне нравится" }
     ]
 
-    implicitWidth: drawer ? 0 : rail ? railWidth : expandedWidth
-    clip: !drawer
-    z: drawer ? 50 : 0
+    implicitWidth: drawer ? 0 : compact ? railWidth : expandedWidth
+    clip: !drawer && !floating
+    z: drawer || floating ? 50 : 0
 
     component FadeLabel: Label {
         opacity: root.rail ? 0 : 1
@@ -49,7 +66,7 @@ Item {
     Rectangle {
         id: scrim
         property point origin: Qt.point(0, 0)
-        visible: root.drawer && opacity > 0
+        visible: opacity > 0
         x: -origin.x
         y: -origin.y
         width: root.Window.width
@@ -63,27 +80,54 @@ Item {
 
     Item {
         id: panel
-        width: root.drawer ? root.expandedWidth : root.width
+        width: root.drawer ? (root.collapsing ? root.railWidth : root.expandedWidth)
+             : root.drawerOpen ? root.expandedWidth : root.width
         height: root.height
-        x: !root.drawer ? 0 : root.drawerOpen ? 0 : -width - 24
-        visible: !root.drawer || root.drawerOpen || x > -width - 24
+        x: !root.drawer ? 0 : root.drawerOpen ? 0 : root.collapsing ? root.width - root.railWidth : -width - 24
+        visible: !root.drawer || root.drawerOpen || root.collapsing || root.closing
+        clip: root.floating && !root.drawer
+        // шторка выезжает слева; раскрытый рейл растёт вширь из рейла (MD3: rail → drawer)
         Behavior on x {
-            enabled: root.drawer
+            enabled: root.drawer && (root.drawerOpen || root.closing)
             NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasizedDecelerate }
         }
+        Behavior on width {
+            enabled: !root.drawer && root.compact
+            NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized }
+        }
         Keys.onEscapePressed: root.closeDrawer()
+
+        // Пустые места панели (вокруг логотипа, между пунктами, под плейлистами) тянут окно, как верхняя
+        // панель; двойной клик — развернуть. Пункты, прокрутка и карточка аккаунта забирают нажатие сами.
+        DragHandler {
+            property bool manual: false
+            target: null
+            grabPermissions: PointerHandler.TakeOverForbidden
+            onActiveChanged: if (active) manual = !root.Window.window.startSystemMove()
+            onCentroidChanged: if (active && manual && root.Window.window.visibility === Window.Windowed) {
+                root.Window.window.x += centroid.scenePosition.x - centroid.scenePressPosition.x
+                root.Window.window.y += centroid.scenePosition.y - centroid.scenePressPosition.y
+            }
+        }
+        TapHandler {
+            acceptedButtons: Qt.LeftButton
+            onDoubleTapped: {
+                const w = root.Window.window
+                w.visibility = w.visibility === Window.Maximized ? Window.Windowed : Window.Maximized
+            }
+        }
 
         // Карточка шторки: скруглён правый край (MD3 modal navigation drawer)
         Rectangle {
             id: drawerBg
-            visible: root.drawer
+            visible: root.floating
             anchors.fill: parent
             anchors.leftMargin: -Theme.shape.extraLarge
             radius: Theme.shape.extraLarge
             color: Theme.surfaceContainerLow
         }
         Elevation { target: drawerBg; level: 1 }
-        MouseArea { visible: root.drawer; anchors.fill: parent; acceptedButtons: Qt.AllButtons; onWheel: w => w.accepted = true }
+        MouseArea { visible: root.floating; anchors.fill: parent; acceptedButtons: Qt.AllButtons; onWheel: w => w.accepted = true }
 
     ColumnLayout {
         anchors.fill: parent
@@ -102,8 +146,16 @@ Item {
             IconButton {
                 x: 40 - root.margin - width / 2
                 anchors.verticalCenter: parent.verticalCenter
+                // всегда переключатель: свернуть / развернуть; в узком окне — раскрыть поверх контента
                 icon: root.rail ? "menu" : "menu_open"
-                onClicked: root.drawer ? root.closeDrawer() : Settings.sidebarCollapsed = !Settings.sidebarCollapsed
+                onClicked: {
+                    if (root.drawer || root.drawerOpen)
+                        root.closeDrawer()
+                    else if (root.forcedRail)
+                        root.openDrawer()
+                    else
+                        Settings.sidebarCollapsed = !Settings.sidebarCollapsed
+                }
             }
             FadeLabel {
                 x: root.iconInset + 28 + 8

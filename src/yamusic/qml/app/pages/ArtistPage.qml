@@ -47,10 +47,12 @@ Page {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             spacing: page.width < 560 ? 20 : 32
+            Behavior on spacing { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
 
             MorphImage {
                 Layout.preferredWidth: page.width > 760 ? 208 : page.width < 560 ? 104 : 144
                 Layout.preferredHeight: Layout.preferredWidth
+                Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
                 source: (page.info.cover ?? "").replace("400x400", "600x600")
                 shape: page.playingHere && Player.playing ? "cookie12" : "circle"
                 duration: Theme.motion.spatialSlow

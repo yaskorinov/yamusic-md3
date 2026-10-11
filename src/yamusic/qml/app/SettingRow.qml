@@ -14,7 +14,17 @@ GridLayout {
     Layout.fillWidth: true
     // ширину задаёт родитель: иначе неявная ширина двух колонок распирает строку и она не переносится
     Layout.preferredWidth: 0
-    columns: width > 0 && width < slot.implicitWidth + 200 ? 1 : 2
+    // перенос контрола под подпись — с запасом ±16 px, иначе у границы строка мигала бы при растягивании
+    property bool _stacked: false
+    function _updateStack() {
+        if (width <= 0)
+            return
+        const edge = slot.implicitWidth + 200
+        _stacked = _stacked ? width < edge + 16 : width < edge - 16
+    }
+    onWidthChanged: _updateStack()
+    Component.onCompleted: _stacked = width > 0 && width < slot.implicitWidth + 200
+    columns: _stacked ? 1 : 2
     columnSpacing: 24
     rowSpacing: 10
 

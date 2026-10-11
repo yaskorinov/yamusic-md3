@@ -139,11 +139,13 @@ Item {
                 y: 24     // запас сверху: фигура за обложкой больше неё и не должна упираться в край списка
                 width: parent.width - 32
                 spacing: page.width < 560 ? 18 : 28
+                Behavior on spacing { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
 
                 // Обложка или фигура с иконкой; за обложкой — медленно вращающаяся фигура
                 Item {
                     Layout.preferredWidth: page.width > 760 ? 184 : page.width < 560 ? 96 : 128
                     Layout.preferredHeight: Layout.preferredWidth
+                    Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
                     Layout.alignment: Qt.AlignTop
                     MorphShape {
                         id: coverBackdrop

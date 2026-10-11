@@ -21,7 +21,12 @@ Item {
     property bool available: true
     property bool liked: false
     property bool current: false       // играет сейчас (этап 4)
-    property bool wide: width > 720
+    property bool wide: _wideAuto
+    // колонка альбома появляется с запасом ±20 px, чтобы не мигать у самой границы при растягивании
+    property bool _wideAuto: width > 720
+    onWidthChanged: _wideAuto = _wideAuto ? width > 700 : width > 740
+    property real _albumT: wide ? 1 : 0
+    Behavior on _albumT { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
     property var track: null           // полный словарь трека для меню; без него — собирается из полей
     property bool highlighted: false   // вспышка «перейти к треку»
 
@@ -138,9 +143,10 @@ Item {
         }
 
         LinkLabel {
-            visible: root.wide
+            visible: root._albumT > 0.01
+            opacity: root._albumT
             Layout.fillWidth: true
-            Layout.preferredWidth: 2
+            Layout.preferredWidth: 2 * root._albumT
             linkEnabled: root.albumId !== ""
             onClicked: Catalog.openAlbum(root.albumId)
             text: root.album

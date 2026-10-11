@@ -17,9 +17,39 @@ Item {
 
     // В узкой пилюле место нужнее треку: по мере сужения уходят «⋯» (меню остаётся по ПКМ на треке),
     // громкость (она есть в полноэкранном плеере) и перемешивание с повтором
-    readonly property bool roomForMenu: width >= 880
-    readonly property bool roomForVolume: width >= 760
-    readonly property bool roomForModes: width >= 640
+    // с запасом ±16 px: у самой границы кнопки не мигают туда-сюда
+    property bool roomForMenu: width >= 880
+    property bool roomForVolume: width >= 760
+    property bool roomForModes: width >= 640
+    onWidthChanged: {
+        const room = (now, edge) => now ? width >= edge - 16 : width >= edge + 16
+        roomForMenu = room(roomForMenu, 880)
+        roomForVolume = room(roomForVolume, 760)
+        roomForModes = room(roomForModes, 640)
+    }
+
+    // Кнопка, которая уходит при сужении: место схлопывается анимацией, сама она гаснет и уменьшается
+    component Fold: Item {
+        id: fold
+        property bool shown: true
+        default property alias content: slot.data
+        readonly property real full: slot.childrenRect.width
+        implicitHeight: slot.childrenRect.height
+        Layout.preferredWidth: shown ? full : 0
+        visible: Layout.preferredWidth > 0.5
+        clip: true
+        Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
+        Item {
+            id: slot
+            anchors.centerIn: parent
+            width: childrenRect.width
+            height: childrenRect.height
+            opacity: fold.shown ? 1 : 0
+            scale: fold.shown ? 1 : 0.6
+            Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsFast } }
+            Behavior on scale { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
+        }
+    }
 
     // Позиция приходит из Python ~5 раз в секунду; между обновлениями — плавно.
     property real progress: Player.position
@@ -48,16 +78,15 @@ Item {
         spacing: 4
 
         // Управление
-        IconButton {
-            visible: root.roomForModes && !root.compact
+        Fold { shown: root.roomForModes && !root.compact; IconButton {
             icon: "shuffle"
             checkable: true
             autoToggle: false
             checked: Player.shuffle
             enabled: Player.hasTrack && Player.source !== "wave"
             onClicked: Player.shuffle = !Player.shuffle
-        }
-        IconButton { visible: !root.compact; icon: "skip_previous"; iconColor: Theme.fgSurface; enabled: Player.hasTrack; onClicked: Player.previous() }
+        } }
+        Fold { shown: !root.compact; IconButton { icon: "skip_previous"; iconColor: Theme.fgSurface; enabled: Player.hasTrack; onClicked: Player.previous() } }
         Item {
             implicitWidth: 52
             implicitHeight: 52
@@ -77,15 +106,14 @@ Item {
             }
         }
         IconButton { icon: "skip_next"; iconColor: Theme.fgSurface; enabled: Player.hasTrack; onClicked: Player.next() }
-        IconButton {
-            visible: root.roomForModes && !root.compact
+        Fold { shown: root.roomForModes && !root.compact; IconButton {
             icon: Player.repeat === "one" ? "repeat_one" : "repeat"
             checkable: true
             autoToggle: false
             checked: Player.repeat !== "off"
             enabled: Player.hasTrack
             onClicked: Player.cycleRepeat()
-        }
+        } }
 
         // Трек
         Item {
@@ -185,16 +213,14 @@ Item {
         }
 
         // Оценка: «не рекомендовать» — только в волне (там она влияет на подбор), лайк — всегда
-        IconButton {
-            visible: Player.source === "wave" && !root.compact
+        Fold { shown: Player.source === "wave" && !root.compact; IconButton {
             icon: "thumb_down"
             enabled: Player.hasTrack
             onClicked: { Library.dislike(Player.track); Player.next() }
-        }
+        } }
         LikeButton { track: Player.track }
-        IconButton {
+        Fold { shown: root.roomForMenu || root.compact; IconButton {
             id: miniMore
-            visible: root.roomForMenu || root.compact
             icon: "more_horiz"
             iconSize: 30
             iconWeight: 700
@@ -204,35 +230,37 @@ Item {
                 const p = miniMore.mapToItem(null, 0, miniMore.height)
                 Catalog.requestTrackMenu(Player.track, p.x, p.y)
             }
-        }
-        Item { implicitWidth: 8; visible: !root.compact }
+        } }
+        Fold { shown: !root.compact; Item { width: 8; height: 8 } }
 
         // Панели и громкость
-        IconButton {
-            visible: !root.compact
+        Fold { shown: !root.compact; IconButton {
             icon: "title"
             checkable: true
             autoToggle: false
             checked: Settings.rightPanelOpen && Settings.rightPanelTab === "lyrics"
             onClicked: root._togglePanel("lyrics")
-        }
-        IconButton {
-            visible: !root.compact
+        } }
+        Fold { shown: !root.compact; IconButton {
             icon: "queue_music"
             checkable: true
             autoToggle: false
             checked: Settings.rightPanelOpen && Settings.rightPanelTab === "queue"
             onClicked: root._togglePanel("queue")
-        }
-        Icon { visible: root.roomForVolume && !root.compact; Layout.leftMargin: 8; name: Player.volume > 0.5 ? "volume_up" : Player.volume > 0 ? "volume_down" : "volume_off"; size: 20 }
-        Slider {
-            visible: root.roomForVolume && !root.compact
-            Layout.preferredWidth: 96
-            trackHeight: 10
-            handleHeight: 28
-            value: Player.volume
-            onMoved: v => Player.volume = v
-        }
+        } }
+        Fold { shown: root.roomForVolume && !root.compact; Row {
+            leftPadding: 8
+            spacing: 4
+            Icon { anchors.verticalCenter: parent.verticalCenter; name: Player.volume > 0.5 ? "volume_up" : Player.volume > 0 ? "volume_down" : "volume_off"; size: 20 }
+            Slider {
+                anchors.verticalCenter: parent.verticalCenter
+                width: 96
+                trackHeight: 10
+                handleHeight: 28
+                value: Player.volume
+                onMoved: v => Player.volume = v
+            }
+        } }
     }
 
     function _togglePanel(tab) {

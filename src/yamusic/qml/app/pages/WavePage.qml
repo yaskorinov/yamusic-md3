@@ -24,10 +24,24 @@ Item {
     // ---- Геометрия сцены ----
     readonly property real sceneHeight: height - 104            // внизу — плавающий мини-плеер
     readonly property real cx: width / 2
-    readonly property real cy: chipMode ? heroSize / 2 + 8 : sceneHeight / 2
+    readonly property real cy: sceneHeight / 2 + (chipHero / 2 + 8 - sceneHeight / 2) * modeT
     // Орбита не помещается даже с мелкими кружками (узкое или низкое окно): фигура сверху,
-    // настройки — группами тональных чипов под ней, со своей прокруткой
-    readonly property bool chipMode: geo.tight && flat.length > 0
+    // настройки — группами тональных чипов под ней, со своей прокруткой. Обратно к орбите — только
+    // когда она влезает с запасом, иначе у самой границы раскладка мигала бы при растягивании окна.
+    property bool chipMode: false
+    function _updateMode() {
+        const n = flat.length
+        chipMode = n > 0 && (chipMode ? _fit(width - 32, sceneHeight - 32, n + 3).tight : geo.tight)
+    }
+    onWidthChanged: _updateMode()
+    onSceneHeightChanged: _updateMode()
+    onFlatChanged: _updateMode()
+    // первая раскладка — сразу в нужном режиме, без перехода
+    property bool _modeReady: false
+    Component.onCompleted: { _updateMode(); _modeReady = true }
+    // 0 — орбита, 1 — чипы; переход плавный: фигура поднимается, кружки разлетаются и гаснут, чипы проявляются
+    property real modeT: chipMode ? 1 : 0
+    Behavior on modeT { enabled: page._modeReady; NumberAnimation { duration: Theme.motion.spatialSlow; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
     // Обычная орбита; если она не влезает в страницу (узкое или низкое окно) — подбор: кружки мельчают,
     // кольца поджимаются к краям, пока всё не уместится (см. _fit)
     readonly property var geo: _fit(width, sceneHeight, flat.length + 3)
@@ -40,9 +54,10 @@ Item {
     // больше: кружки не мельчают, а расходятся на два кольца.
     readonly property real zig: geo.zig
     // между центром и внутренним кольцом должна помещаться прилипшая фигура
-    readonly property real heroSize: chipMode ? Math.max(88, Math.min(140, sceneHeight * 0.3, width * 0.4))
-        : flat.length === 0 ? Math.min(ry * 1.2, 300)     // без входа настроек нет
+    readonly property real orbitHero: flat.length === 0 ? Math.min(ry * 1.2, 300)     // без входа настроек нет
         : Math.max(geo.tight ? 84 : 140, Math.min(2 * (ry * (1 - zig) - bubble * 1.4 - 6), rx * 0.8, 320))
+    readonly property real chipHero: Math.max(88, Math.min(140, sceneHeight * 0.3, width * 0.4))
+    readonly property real heroSize: orbitHero + (chipHero - orbitHero) * modeT
 
     function _zig(b, rx, ry, slots) {
         const s = 2 * Math.PI * Math.sqrt((rx * rx + ry * ry) / 2) / slots
@@ -165,10 +180,10 @@ Item {
 
     // Орбита — пунктир
     Shape {
-        visible: !page.chipMode
+        visible: page.modeT < 1
         x: page.cx
         y: page.cy
-        opacity: page.flat.length > 0 ? Math.min(1, page.intro * 2) : 0
+        opacity: (page.flat.length > 0 ? Math.min(1, page.intro * 2) : 0) * (1 - page.modeT)
         preferredRendererType: Shape.CurveRenderer
         ShapePath {
             strokeColor: Theme.outlineVariant
@@ -237,7 +252,7 @@ Item {
 
         Item {
             id: body
-            visible: !page.chipMode
+            visible: page.modeT < 1
             required property var modelData
             required property int index
 
@@ -263,11 +278,13 @@ Item {
 
             width: caption ? Math.max(page.bubble, captionLabel.implicitWidth) : page.bubble
             height: page.bubble
-            x: page.cx + (slot.x * appear + bobX) * (1 - docked) + dir.x * reach * docked - width / 2
-            y: page.cy + (slot.y * appear + bobY) * (1 - docked) + dir.y * reach * docked - height / 2
+            // при уходе в чипы кружки сходятся к фигуре и гаснут
+            readonly property real gather: 1 - 0.55 * page.modeT
+            x: page.cx + (slot.x * appear * gather + bobX) * (1 - docked) + dir.x * reach * docked - width / 2
+            y: page.cy + (slot.y * appear * gather + bobY) * (1 - docked) + dir.y * reach * docked - height / 2
             z: selected ? 2 : 0
-            opacity: appear
-            scale: (0.4 + 0.6 * appear) * (area.pressed ? 0.94 : area.containsMouse ? 1.06 : 1)
+            opacity: appear * (1 - page.modeT)
+            scale: (0.4 + 0.6 * appear) * (1 - 0.4 * page.modeT) * (area.pressed ? 0.94 : area.containsMouse ? 1.06 : 1)
             Behavior on scale { NumberAnimation { duration: Theme.motion.spatialFast; easing.type: Easing.OutBack } }
 
             Label {
@@ -316,7 +333,9 @@ Item {
     // ---- Тесное окно: группы чипов под фигурой ----
     Flickable {
         id: chipScroll
-        visible: page.chipMode
+        visible: page.modeT > 0
+        opacity: page.modeT
+        transform: Translate { y: (1 - page.modeT) * 32 }
         anchors.left: parent.left
         anchors.right: parent.right
         y: heroBox.y + heroBox.height + 12
@@ -420,8 +439,8 @@ Item {
         width: page.flat.length > 0 ? Math.max(200, Math.min(page.slots.gap, 440)) : Math.min(page.width - 64, 440)
         // в узком окне свободная дуга короче подписи — та наезжала бы на кружки; остаётся только ошибка
         readonly property bool fits: page.flat.length === 0 || page.slots.gap >= 200 || Wave.errorText !== ""
-        visible: fits && !page.chipMode
-        opacity: page.flat.length > 0 ? Math.min(1, page.intro * 2) : 1
+        visible: fits && page.modeT < 1
+        opacity: (page.flat.length > 0 ? Math.min(1, page.intro * 2) : 1) * (1 - page.modeT)
         spacing: 12
         Label {
             Layout.fillWidth: true

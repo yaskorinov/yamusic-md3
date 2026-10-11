@@ -42,10 +42,24 @@ Item {
         anchors.rightMargin: 16
         spacing: 8
 
-        IconButton {
-            visible: root.showMenuButton
-            icon: "menu"
-            onClicked: root.menuClicked()
+        // кнопка шторки въезжает и раздвигает заголовок, а не появляется рывком
+        Item {
+            Layout.preferredWidth: root.showMenuButton ? menuButton.implicitWidth : 0
+            Layout.rightMargin: root.showMenuButton ? 0 : -8
+            Layout.preferredHeight: menuButton.implicitHeight
+            Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
+            Behavior on Layout.rightMargin { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
+            clip: true
+            IconButton {
+                id: menuButton
+                icon: "menu"
+                enabled: root.showMenuButton
+                opacity: root.showMenuButton ? 1 : 0
+                scale: root.showMenuButton ? 1 : 0.6
+                Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsDefault } }
+                Behavior on scale { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.OutBack } }
+                onClicked: root.menuClicked()
+            }
         }
 
         // Без «назад» кнопка схлопывается, и заголовок стоит у левого края
