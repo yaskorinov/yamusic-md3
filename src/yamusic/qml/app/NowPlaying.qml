@@ -201,7 +201,9 @@ Item {
                 Binding {
                     target: Player
                     property: "levelsWanted"
-                    value: root.visible && root.open && Settings.coverPulse && Player.playing && !Theme.calm
+                    // уровни нужны и мини-плееру (MiniMode): там обложка и фон тоже дышат в такт
+                    value: ((root.visible && root.open) || (root.Window.window && root.Window.window.layoutMode === "mini"))
+                           && Settings.coverPulse && Player.playing && !Theme.calm
                 }
                 property real avgLevel: 0
                 property real beat: 0

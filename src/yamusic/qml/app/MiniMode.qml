@@ -41,10 +41,29 @@ Item {
         followTheme: Settings.accentFromCover
         running: root.visible && Player.playing
     }
+    // вуаль на ударе чуть тоньше — переливающийся фон «вспыхивает» в такт
     Rectangle {
         anchors.fill: parent
         color: Theme.surface
-        opacity: Player.cover === "" ? 0 : Theme.dark ? 0.6 : 0.52
+        opacity: Player.cover === "" ? 0 : (Theme.dark ? 0.6 : 0.52) - (Settings.coverPulse ? root.beat * 0.16 : 0)
+    }
+
+    // «Дыхание» в такт, как у полноэкранного плеера: уровень звука от mpv (запрашивает NowPlaying и в режиме mini);
+    // доля над скользящим средним — удар
+    property real avgLevel: 0
+    property real beat: 0
+    Behavior on beat { NumberAnimation { duration: 110; easing.type: Easing.OutQuad } }
+    Connections {
+        target: Player
+        enabled: root.visible
+        function onLevelChanged() {
+            root.avgLevel += (Player.level - root.avgLevel) * 0.06
+            root.beat = Math.max(0, Math.min(1, (Player.level - root.avgLevel) * 4))
+        }
+    }
+    Connections {
+        target: Player
+        function onPlayingChanged() { if (!Player.playing) root.beat = 0 }
     }
 
     // Перетаскивание окна за фон (кнопки и полоса перемотки забирают нажатие сами)
@@ -84,6 +103,7 @@ Item {
             visible: Player.cover !== ""
             source: Player.cover
             shape: Player.playing ? "cookie12" : "softSquare"
+            pulse: Settings.coverPulse ? root.beat : 0
             MaskSpin { target: img; spinning: Settings.coverSpin && Player.playing }
         }
         MorphShape {
