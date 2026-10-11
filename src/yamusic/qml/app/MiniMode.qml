@@ -117,23 +117,41 @@ Item {
         }
     }
 
-    // Закрепить поверх всех окон — общее состояние окна (его же переключает меню трека)
-    component PinButton: IconButton {
-        icon: "push_pin"
-        size: "xs"
-        checkable: true
-        autoToggle: false
-        checked: root.window.pinnedOnTop
-        iconColor: checked ? Theme.fgSecondaryContainer : Theme.fgSurface
-        onClicked: root.window.pinnedOnTop = !root.window.pinnedOnTop
-    }
+    // Кнопки окна не висят постоянно: пилюля в углу появляется при наведении («свернуть», «закрыть»);
+    // закреплённое окно всегда показывает булавку — клик открепляет. «Развернуть» и «Поверх всех окон» —
+    // в меню по ПКМ, развернуть — ещё и двойным кликом.
+    HoverHandler { id: hover }
+    Rectangle {
+        id: chrome
+        readonly property bool pinned: root.window.pinnedOnTop === true
+        readonly property bool shown: hover.hovered || pinned
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: 6
+        z: 10
+        width: chromeRow.implicitWidth + 4
+        height: chromeRow.implicitHeight + 4
+        radius: height / 2
+        color: Qt.alpha(Theme.surfaceContainerHigh, 0.88)
+        opacity: shown ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsFast } }
+        Behavior on width { NumberAnimation { duration: Theme.motion.spatialFast; easing.type: Easing.OutCubic } }
+        clip: true
 
-    component WindowButtons: Row {
-        spacing: 2
-        PinButton {}
-        IconButton { icon: "remove"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.window.showMinimized() }
-        IconButton { icon: "open_in_full"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.expandRequested() }
-        IconButton { icon: "close"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.window.close() }
+        Row {
+            id: chromeRow
+            anchors.centerIn: parent
+            spacing: 0
+            IconButton {
+                visible: chrome.pinned
+                icon: "push_pin"; size: "xs"
+                checkable: true; autoToggle: false; checked: true
+                onClicked: root.window.pinnedOnTop = false
+            }
+            IconButton { visible: hover.hovered; icon: "remove"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.window.showMinimized() }
+            IconButton { visible: hover.hovered; icon: "close"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.window.close() }
+        }
     }
 
     readonly property string titleText: Player.hasTrack ? Player.title : "Ничего не играет"
@@ -146,18 +164,10 @@ Item {
         anchors.fill: parent
         visible: !root.strip
 
-        WindowButtons {
-            id: cardButtons
-            anchors.top: parent.top
-            anchors.right: parent.right
-            anchors.margins: 6
-            z: 2
-        }
-
         GridLayout {
             anchors.fill: parent
             anchors.margins: 16
-            anchors.topMargin: root.landscape ? 16 : 40
+            anchors.topMargin: 16
             columns: root.landscape ? 2 : 1
             columnSpacing: 16
             rowSpacing: 10
@@ -295,16 +305,6 @@ Item {
                 icon: "skip_next"; iconColor: Theme.fgSurface; enabled: Player.hasTrack; onClicked: Player.next()
             }
             LikeButton { track: Player.track; visible: stripBox.width >= 420 }
-            // кнопки окна — квадратом 2×2 у правого края (столбик из четырёх не влез бы в низкое окно)
-            Grid {
-                Layout.alignment: Qt.AlignVCenter
-                columns: 2
-                spacing: 0
-                PinButton {}
-                IconButton { icon: "close"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.window.close() }
-                IconButton { icon: "remove"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.window.showMinimized() }
-                IconButton { icon: "open_in_full"; size: "xs"; iconColor: Theme.fgSurface; onClicked: root.expandRequested() }
-            }
         }
 
         // Перемотка — тонкой волной по нижнему краю
