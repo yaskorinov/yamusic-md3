@@ -423,7 +423,10 @@ pub fn parse_subtitles(body: &str) -> Result<Vec<(f64, String)>, String> {
 
 // ── LRCLIB ───────────────────────────────────────────────────────────────────
 
-/// syncedLyrics с LRCLIB (get, затем search с допуском по длительности 5 с).
+/// syncedLyrics с LRCLIB. Кандидаты — точный get и поиск по названию с исполнителем, а если среди них
+/// ничего не подошло — все треки исполнителя (поиск LRCLIB ищет по словам целиком: «погибать» не найдёт
+/// «Пагибать»). Из синхронных записей с похожим названием и длительностью берётся разметка, с которой
+/// согласно больше всего записей, — одну и ту же разметку часто копируют на версии другой длины.
 pub async fn lrclib_fetch(http: &reqwest::Client, query: &LyricsQuery) -> Result<Option<String>, String> {
     let duration = query.duration;
     let mut params: Vec<(&str, String)> = vec![("track_name", query.title.clone()), ("artist_name", query.artist.clone())];
@@ -433,25 +436,104 @@ pub async fn lrclib_fetch(http: &reqwest::Client, query: &LyricsQuery) -> Result
     if duration != 0.0 {
         params.push(("duration", (duration.round_ties_even() as i64).to_string()));
     }
+    let mut found = Vec::new();
     match lrclib(http, "https://lrclib.net/api/get", &params).await {
-        Ok(d) => {
-            if let Some(s) = get(&d, "syncedLyrics").as_str().filter(|s| !s.is_empty()) {
-                return Ok(Some(s.to_owned()));
-            }
-        }
+        Ok(d) => found.push(d),
         Err(HttpError::Status(404)) => {}
         Err(e) => return Err(e.into()),
     }
-    let q = [("track_name", clean_title(&query.title)), ("artist_name", primary_artist(&query.artist))];
-    let found = lrclib(http, "https://lrclib.net/api/search", &q).await?;
-    for r in found.as_array().map(Vec::as_slice).unwrap_or_default() {
-        let Some(synced) = get(r, "syncedLyrics").as_str().filter(|s| !s.is_empty()) else { continue };
-        if duration != 0.0 && (get(r, "duration").as_f64().unwrap_or(0.0) - duration).abs() > 5.0 {
+    let artist = primary_artist(&query.artist);
+    let q = [("track_name", clean_title(&query.title)), ("artist_name", artist.clone())];
+    extend_found(&mut found, lrclib(http, "https://lrclib.net/api/search", &q).await)?;
+    if let Some(lrc) = pick_lrclib(&found, query) {
+        return Ok(Some(lrc));
+    }
+    extend_found(&mut found, lrclib(http, "https://lrclib.net/api/search", &[("q", artist)]).await)?;
+    Ok(pick_lrclib(&found, query))
+}
+
+fn extend_found(found: &mut Vec<Value>, res: Result<Value, HttpError>) -> Result<(), String> {
+    match res {
+        Ok(Value::Array(rows)) => found.extend(rows),
+        Ok(_) => {}
+        // уже есть что выбирать — сбой дополнительного поиска не страшен
+        Err(_) if !found.is_empty() => {}
+        Err(e) => return Err(e.into()),
+    }
+    Ok(())
+}
+
+/// Похожие названия: совпадение/вхождение после нормализации или отличие в паре букв (≥ 80 % совпадения).
+fn title_like(a: &str, b: &str) -> bool {
+    if similar(a, b) {
+        return true;
+    }
+    let (a, b): (Vec<char>, Vec<char>) = (norm(a).chars().collect(), norm(b).chars().collect());
+    let longest = a.len().max(b.len());
+    longest >= 4 && levenshtein(&a, &b) as f64 <= longest as f64 * 0.2
+}
+
+fn levenshtein(a: &[char], b: &[char]) -> usize {
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.iter().enumerate() {
+        let mut cur = vec![i + 1; b.len() + 1];
+        for (j, cb) in b.iter().enumerate() {
+            cur[j + 1] = (prev[j] + usize::from(ca != cb)).min(prev[j + 1] + 1).min(cur[j] + 1);
+        }
+        prev = cur;
+    }
+    prev[b.len()]
+}
+
+struct LrcCandidate<'a> {
+    lrc: &'a str,
+    duration: f64,
+    /// времена первых строк с текстом — «почерк» разметки
+    stamps: Vec<f64>,
+}
+
+impl LrcCandidate<'_> {
+    fn same_sync(&self, other: &Self) -> bool {
+        let n = self.stamps.len().min(other.stamps.len());
+        n > 0 && self.stamps.iter().zip(&other.stamps).take(n).all(|(a, b)| (a - b).abs() <= 0.6)
+    }
+}
+
+fn pick_lrclib(found: &[Value], query: &LyricsQuery) -> Option<String> {
+    let title = clean_title(&query.title);
+    let artist = primary_artist(&query.artist);
+    let duration = query.duration;
+    let mut ids = std::collections::HashSet::new();
+    let mut all = Vec::new();
+    for r in found {
+        let Some(lrc) = get(r, "syncedLyrics").as_str().filter(|s| !s.is_empty()) else { continue };
+        if let Some(id) = get(r, "id").as_i64()
+            && !ids.insert(id)
+        {
             continue;
         }
-        return Ok(Some(synced.to_owned()));
+        if !title_like(&clean_title(text_of(get(r, "trackName"))), &title) || !similar(text_of(get(r, "artistName")), &artist) {
+            continue;
+        }
+        let stamps = crate::lrc::lines_from_lrc(lrc).into_iter().filter(|(_, t)| !t.is_empty()).map(|(t, _)| t).take(3).collect();
+        all.push(LrcCandidate { lrc, duration: get(r, "duration").as_f64().unwrap_or(0.0), stamps });
     }
-    Ok(None)
+    if duration <= 0.0 {
+        return all.first().map(|c| c.lrc.to_owned());
+    }
+    let off = |c: &LrcCandidate| (c.duration - duration).abs();
+    let near: Vec<&LrcCandidate> = all.iter().filter(|c| off(c) <= 3.0).collect();
+    let pool = if near.is_empty() { all.iter().filter(|c| off(c) <= 5.0).collect() } else { near };
+    pool.iter()
+        .max_by(|a, b| {
+            let score = |c: &LrcCandidate| {
+                let support = pool.iter().filter(|o| o.same_sync(c)).count() as i64;
+                let copies = all.iter().filter(|o| off(o) > 10.0 && o.same_sync(c)).count() as i64;
+                2 * support - copies
+            };
+            score(a).cmp(&score(b)).then(off(b).total_cmp(&off(a)))
+        })
+        .map(|c| c.lrc.to_owned())
 }
 
 async fn lrclib(http: &reqwest::Client, url: &str, params: &[(&str, String)]) -> Result<Value, HttpError> {
@@ -465,6 +547,52 @@ mod tests {
 
     fn q(title: &str, artist: &str, duration: f64) -> LyricsQuery {
         LyricsQuery { title: title.into(), artist: artist.into(), duration, ..Default::default() }
+    }
+
+    fn lrc_row(id: i64, title: &str, artist: &str, duration: f64, first: &str) -> Value {
+        json!({"id": id, "trackName": title, "artistName": artist, "duration": duration,
+               "syncedLyrics": format!("[{first}] a
+[00:30.00] b
+[00:40.00] c")})
+    }
+
+    #[test]
+    fn lrclib_prefers_agreeing_sync_over_copied_one() {
+        // разметку с 00:21 скопировали на версии любой длины, независимые синхронизации сходятся на 00:02
+        let rows = vec![
+            lrc_row(1, "No Coke", "Dr. Alban", 224.0, "00:21.16"),
+            lrc_row(2, "No Coke", "Dr. Alban", 222.0, "00:21.16"),
+            lrc_row(3, "No coke", "Dr. Alban", 245.0, "00:21.16"),
+            lrc_row(4, "No Coke", "Dr. Alban", 402.0, "00:21.16"),
+            lrc_row(5, "No Coke", "Dr. Alban", 256.0, "00:21.16"),
+            lrc_row(6, "No Coke", "Dr. Alban", 224.0, "00:02.41"),
+            lrc_row(7, "No Coke 7 Mix", "Dr Alban", 224.5, "00:02.77"),
+            lrc_row(8, "No Coke", "Dr. Alban", 225.0, "00:02.49"),
+        ];
+        let lrc = pick_lrclib(&rows, &q("No Coke", "Dr. Alban", 224.0)).unwrap();
+        assert!(lrc.starts_with("[00:02"), "{lrc}");
+    }
+
+    #[test]
+    fn lrclib_title_tolerates_spelling() {
+        let rows = vec![
+            lrc_row(1, "Шмыг под кожу", "Мистер Малой", 134.0, "00:10.00"),
+            lrc_row(2, "Буду Пагибать Малодым", "Мистер Малой", 134.0, "00:17.00"),
+        ];
+        let lrc = pick_lrclib(&rows, &q("Буду погибать молодым", "Мистер Малой", 135.0)).unwrap();
+        assert!(lrc.starts_with("[00:17"));
+        assert!(!title_like("Шмыг под кожу", "Буду погибать молодым"));
+        assert!(pick_lrclib(&rows, &q("Буду погибать молодым", "Другой", 135.0)).is_none());
+    }
+
+    #[tokio::test]
+    #[ignore = "сеть: настоящий LRCLIB"]
+    async fn lrclib_live() {
+        let http = reqwest::Client::new();
+        let malo = lrclib_fetch(&http, &q("Буду погибать молодым", "Мистер Малой", 135.0)).await.unwrap().unwrap();
+        assert!(malo.contains("[00:1"), "{}", &malo[..80.min(malo.len())]);
+        let coke = lrclib_fetch(&http, &q("No Coke", "Dr. Alban", 224.0)).await.unwrap().unwrap();
+        assert!(coke.trim_start().starts_with("[00:02"), "{}", &coke[..80.min(coke.len())]);
     }
 
     #[test]
