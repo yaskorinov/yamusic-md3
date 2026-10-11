@@ -54,7 +54,7 @@ Item {
     }
 
     function _miniItems() {
-        const onTop = _win && "pinnedOnTop" in _win
+        const onTop = _win && "pinnedOnTop" in _win && _win.canPin !== false
         const items = [
             { id: "mini:shuffle", text: "Перемешивать", icon: "shuffle", checked: Player.shuffle,
               enabled: Player.hasTrack && Player.source !== "wave" },

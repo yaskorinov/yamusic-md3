@@ -145,7 +145,7 @@ Item {
         id: chrome
         readonly property bool pinned: root.window.pinnedOnTop === true
         // с Shift вместо «свернуть/закрыть» — булавка (Shift считывается при движении мыши над окном)
-        readonly property bool shift: hover.hovered && (hover.point.modifiers & Qt.ShiftModifier) !== 0
+        readonly property bool shift: hover.hovered && root.window.canPin !== false && (hover.point.modifiers & Qt.ShiftModifier) !== 0
         readonly property bool shown: hover.hovered || pinned
         anchors.top: parent.top
         anchors.right: parent.right

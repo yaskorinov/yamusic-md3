@@ -22,6 +22,9 @@ Window {
     title: Player.hasTrack ? Player.title + " — " + Player.artist + " · YaMusic" : "YaMusic"
     // «Поверх всех окон» (кнопка мини-плеера, меню трека); не запоминается между запусками
     property bool pinnedOnTop: false
+    // Wayland: протокола «поверх всех окон» нет (GNOME, Weston флаг игнорируют), и окно не знает своих координат
+    readonly property bool wayland: Qt.platform.pluginName.indexOf("wayland") === 0
+    readonly property bool canPin: !wayland
     flags: Qt.Window | Qt.FramelessWindowHint | (pinnedOnTop ? Qt.WindowStaysOnTopHint : 0)
     color: Theme.surface
 
@@ -118,7 +121,9 @@ Window {
             width = Math.max(minimumWidth, Settings.windowWidth)
             height = Math.max(minimumHeight, Settings.windowHeight)
         }
-        if (!cliSize && Settings.windowX > -1000000 && _onSomeScreen(Settings.windowX, Settings.windowY, width)) {
+        if (wayland) {
+            // положение окна на Wayland выбирает композитор
+        } else if (!cliSize && Settings.windowX > -1000000 && _onSomeScreen(Settings.windowX, Settings.windowY, width)) {
             x = Settings.windowX
             y = Settings.windowY
         } else {
@@ -145,8 +150,10 @@ Window {
         Settings.windowMaximized = false
         Settings.windowWidth = width
         Settings.windowHeight = height
-        Settings.windowX = x
-        Settings.windowY = y
+        if (!wayland) {      // там x/y всегда 0 — не затираем положение, сохранённое под X11
+            Settings.windowX = x
+            Settings.windowY = y
+        }
     }
     Timer { id: geoSave; interval: 400; onTriggered: win._saveGeometry() }
     onXChanged: if (_geoReady) geoSave.restart()
