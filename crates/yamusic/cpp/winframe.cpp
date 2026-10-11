@@ -20,6 +20,8 @@
 
 #include <QtCore/QAbstractNativeEventFilter>
 #include <QtCore/QByteArray>
+#include <QtCore/QCoreApplication>
+#include <QtCore/QMetaObject>
 #include <QtCore/QPointer>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QWindow>
@@ -29,6 +31,18 @@
 namespace ym {
 
 namespace {
+
+// WS_THICKFRAME и компания: нативный ресайз, Aero Snap, Win+стрелки, анимации
+void
+apply_frame_style(HWND hwnd)
+{
+  const LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+  const LONG_PTR want = style | WS_THICKFRAME | WS_CAPTION | WS_MAXIMIZEBOX | WS_MINIMIZEBOX | WS_SYSMENU;
+  if (want == style)
+    return;
+  SetWindowLongPtrW(hwnd, GWL_STYLE, want);
+  SetWindowPos(hwnd, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
 
 bool
 taskbar_autohide()
@@ -66,6 +80,15 @@ public:
       case WM_NCHITTEST:
         *result = hit_test(GET_X_LPARAM(msg->lParam), GET_Y_LPARAM(msg->lParam));
         return true;
+      case WM_STYLECHANGED:
+        // Qt пересчитывает стиль из флагов окна (например, «поверх всех окон») и снимает WS_THICKFRAME —
+        // возвращаем после того, как Qt закончит
+        if (msg->wParam == static_cast<WPARAM>(GWL_STYLE)
+            && !(reinterpret_cast<const STYLESTRUCT*>(msg->lParam)->styleNew & WS_THICKFRAME)) {
+          QMetaObject::invokeMethod(
+            QCoreApplication::instance(), [hwnd = m_hwnd] { apply_frame_style(hwnd); }, Qt::QueuedConnection);
+        }
+        return false;
       default:
         return false;
     }
@@ -143,10 +166,7 @@ winframe_install(QObject* object, int grip)
   // Живёт до конца процесса (окно главное).
   QGuiApplication::instance()->installNativeEventFilter(new FrameFilter(window, hwnd, grip));
 
-  const LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
-  SetWindowLongPtrW(
-    hwnd, GWL_STYLE, style | WS_THICKFRAME | WS_CAPTION | WS_MAXIMIZEBOX | WS_MINIMIZEBOX | WS_SYSMENU);
-  SetWindowPos(hwnd, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+  apply_frame_style(hwnd);
 
   // Тень и скругления Windows 11
   const MARGINS margins{ 0, 0, 0, 1 };

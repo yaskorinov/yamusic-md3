@@ -36,6 +36,9 @@ pub mod qobject {
         #[qproperty(bool, sidebar_collapsed, cxx_name = "sidebarCollapsed", READ, WRITE = set_sidebar_collapsed, NOTIFY = sidebar_collapsed_changed)]
         #[qproperty(i32, window_width, cxx_name = "windowWidth", READ, WRITE = set_window_width, NOTIFY = window_width_changed)]
         #[qproperty(i32, window_height, cxx_name = "windowHeight", READ, WRITE = set_window_height, NOTIFY = window_height_changed)]
+        #[qproperty(i32, window_x, cxx_name = "windowX", READ, WRITE = set_window_x, NOTIFY = window_x_changed)]
+        #[qproperty(i32, window_y, cxx_name = "windowY", READ, WRITE = set_window_y, NOTIFY = window_y_changed)]
+        #[qproperty(bool, window_maximized, cxx_name = "windowMaximized", READ, WRITE = set_window_maximized, NOTIFY = window_maximized_changed)]
         #[qproperty(QString, quality, READ, WRITE = set_quality, NOTIFY = quality_changed)]
         #[qproperty(f64, volume, READ, WRITE = set_volume, NOTIFY = volume_changed)]
         #[qproperty(i32, crossfade, READ, WRITE = set_crossfade, NOTIFY = crossfade_changed)]
@@ -64,6 +67,9 @@ pub mod qobject {
         fn set_sidebar_collapsed(self: Pin<&mut Settings>, value: bool);
         fn set_window_width(self: Pin<&mut Settings>, value: i32);
         fn set_window_height(self: Pin<&mut Settings>, value: i32);
+        fn set_window_x(self: Pin<&mut Settings>, value: i32);
+        fn set_window_y(self: Pin<&mut Settings>, value: i32);
+        fn set_window_maximized(self: Pin<&mut Settings>, value: bool);
         fn set_quality(self: Pin<&mut Settings>, value: QString);
         fn set_volume(self: Pin<&mut Settings>, value: f64);
         fn set_crossfade(self: Pin<&mut Settings>, value: i32);
@@ -125,6 +131,15 @@ pub mod qobject {
         #[qsignal]
         #[cxx_name = "windowHeightChanged"]
         fn window_height_changed(self: Pin<&mut Settings>);
+        #[qsignal]
+        #[cxx_name = "windowXChanged"]
+        fn window_x_changed(self: Pin<&mut Settings>);
+        #[qsignal]
+        #[cxx_name = "windowYChanged"]
+        fn window_y_changed(self: Pin<&mut Settings>);
+        #[qsignal]
+        #[cxx_name = "windowMaximizedChanged"]
+        fn window_maximized_changed(self: Pin<&mut Settings>);
         #[qsignal]
         #[cxx_name = "qualityChanged"]
         fn quality_changed(self: Pin<&mut Settings>);
@@ -258,6 +273,9 @@ settings! {
     sidebar_collapsed: bool = SidebarCollapsed, set_sidebar_collapsed, sidebar_collapsed_changed;
     window_width: i32 = WindowWidth, set_window_width, window_width_changed;
     window_height: i32 = WindowHeight, set_window_height, window_height_changed;
+    window_x: i32 = WindowX, set_window_x, window_x_changed;
+    window_y: i32 = WindowY, set_window_y, window_y_changed;
+    window_maximized: bool = WindowMaximized, set_window_maximized, window_maximized_changed;
     quality: QString = Quality, set_quality, quality_changed;
     volume: f64 = Volume, set_volume, volume_changed;
     crossfade: i32 = Crossfade, set_crossfade, crossfade_changed;

@@ -12,17 +12,71 @@ Window {
 
     property string startPage: "wave"     // --set startPage=settings (для разработки)
 
-    width: Settings.windowWidth
-    height: Settings.windowHeight
-    minimumWidth: 720
-    minimumHeight: 520
-    visible: true
+    // размер и положение — последние сохранённые (см. _restoreGeometry); окно показывается уже на месте
+    width: 1280
+    height: 800
+    // Меньше обычной раскладки окно уходит в «компактную» (сайдбар — шторкой), ещё меньше — в мини-плеер
+    minimumWidth: 280
+    minimumHeight: 120
+    visible: false
     title: Player.hasTrack ? Player.title + " — " + Player.artist + " · YaMusic" : "YaMusic"
-    flags: Qt.Window | Qt.FramelessWindowHint
+    // «Поверх всех окон» (кнопка мини-плеера, меню трека); не запоминается между запусками
+    property bool pinnedOnTop: false
+    // Wayland: протокола «поверх всех окон» нет (GNOME, Weston флаг игнорируют), и окно не знает своих координат
+    readonly property bool wayland: Qt.platform.pluginName.indexOf("wayland") === 0
+    readonly property bool canPin: !wayland
+    flags: Qt.Window | Qt.FramelessWindowHint | (pinnedOnTop ? Qt.WindowStaysOnTopHint : 0)
     color: Theme.surface
 
+    // Раскладка по размеру окна. Порог с гистерезисом: вход в режим — у порога, выход — на 24 px дальше,
+    // поэтому у границы режим не дёргается туда-обратно. Сжатие переключает сразу (старая раскладка уже
+    // не помещается), расширение — когда размер постоит 150 мс, а не на каждом шаге перетаскивания.
+    property string layoutMode: _modeFor(width, height, "")
+    readonly property bool mini: layoutMode === "mini"
+    readonly property var _modeRank: ({ mini: 0, compact: 1, full: 2 })
+    function _modeFor(w, h, cur) {
+        const band = 24
+        const miniNow = cur === "mini" ? (w < 480 + band || h < 400 + band) : (w < 480 || h < 400)
+        if (miniNow)
+            return "mini"
+        return (cur === "full" || cur === "") ? (w < 720 ? "compact" : "full") : (w < 720 + band ? "compact" : "full")
+    }
+    function _reevaluateMode() {
+        const next = _modeFor(width, height, layoutMode)
+        if (next === layoutMode)
+            modeSettle.stop()
+        else if (_modeRank[next] < _modeRank[layoutMode]) {
+            modeSettle.stop()
+            layoutMode = next
+        } else
+            modeSettle.restart()
+    }
+    // размер и положение — из настроек; заодно разрывает привязку layoutMode (дальше — только _reevaluateMode)
+    Component.onCompleted: _restoreGeometry()
+    onWidthChanged: { _reevaluateMode(); if (_geoReady) geoSave.restart() }
+    onHeightChanged: { _reevaluateMode(); if (_geoReady) geoSave.restart() }
+    Timer {
+        id: modeSettle
+        interval: 150
+        onTriggered: win.layoutMode = win._modeFor(win.width, win.height, win.layoutMode)
+    }
+
+    // 0 — обычная сцена, 1 — мини-плеер; между ними — перекрёстное растворение с лёгким масштабом
+    property real miniProgress: mini ? 1 : 0
+    Behavior on miniProgress {
+        NumberAnimation { duration: 320; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized }
+    }
+    property bool _miniUsed: false
+    onMiniChanged: {
+        if (mini) {
+            _miniUsed = true
+            if (nowPlaying.open)
+                nowPlaying.hide()
+        }
+    }
+
     readonly property bool panelFits: width >= 1100
-    readonly property bool panelShown: Settings.rightPanelOpen && panelFits
+    readonly property bool panelShown: Settings.rightPanelOpen && panelFits && layoutMode === "full"
     // Открытая правая панель забирает 340 px: в окне уже 1400 боковая панель сворачивается в рейку,
     // иначе контенту остаётся меньше, чем в самом узком окне, и мини-плеер с «орбитой» в него не влезают
     readonly property bool compactSidebar: Settings.sidebarCollapsed || width < 980 || (panelShown && width < 1400)
@@ -32,17 +86,82 @@ Window {
     readonly property bool trayWanted: typeof yamusicTray !== "undefined" && yamusicTray && Settings.closeToTray
     readonly property bool trayReady: tray.object !== null && tray.object.available
 
+    // Из мини-плеера — обратно к обычному размеру (последний сохранённый, но не меньше обычной раскладки)
+    function expandFromMini() {
+        if (visibility !== Window.Windowed)
+            visibility = Window.Windowed
+        const w = Math.max(Settings.windowWidth, 960), h = Math.max(Settings.windowHeight, 640)
+        const s = screen
+        x = Math.max(s.virtualX, Math.min(x, s.virtualX + s.width - w))
+        y = Math.max(s.virtualY, Math.min(y, s.virtualY + s.height - h))
+        width = w
+        height = h
+    }
+
     function showWindow() {
         show()
         raise()
         requestActivate()
     }
 
-    onClosing: close => {
-        if (visibility === Window.Windowed) {
-            Settings.windowWidth = width
-            Settings.windowHeight = height
+    // ---- Размер и положение окна между запусками ----
+    property bool _geoReady: false
+    function _onSomeScreen(px, py, w) {
+        // хотя бы верх окна (полоса, за которую его можно перетащить) — на одном из мониторов
+        for (const s of Qt.application.screens) {
+            if (px + w / 2 >= s.virtualX && px + w / 2 < s.virtualX + s.width && py >= s.virtualY && py + 24 < s.virtualY + s.height)
+                return true
         }
+        return false
+    }
+    function _restoreGeometry() {
+        // --size (снимки, отладка) важнее сохранённого
+        const cliSize = Qt.application.arguments.some(a => a === "--size" || a.startsWith("--size="))
+        if (!cliSize) {
+            width = Math.max(minimumWidth, Settings.windowWidth)
+            height = Math.max(minimumHeight, Settings.windowHeight)
+        }
+        if (wayland) {
+            // положение окна на Wayland выбирает композитор
+        } else if (!cliSize && Settings.windowX > -1000000 && _onSomeScreen(Settings.windowX, Settings.windowY, width)) {
+            x = Settings.windowX
+            y = Settings.windowY
+        } else {
+            x = screen.virtualX + Math.max(0, (screen.width - width) / 2)
+            y = screen.virtualY + Math.max(0, (screen.height - height) / 2)
+        }
+        layoutMode = _modeFor(width, height, "")
+        if (!cliSize && Settings.windowMaximized)
+            showMaximized()
+        else
+            show()
+        _geoReady = true
+    }
+    function _saveGeometry() {
+        if (!_geoReady)
+            return
+        if (visibility === Window.Maximized) {
+            Settings.windowMaximized = true
+            return
+        }
+        // свёрнутое, на весь экран или спрятанное в трей — последнее обычное положение не трогаем
+        if (visibility !== Window.Windowed)
+            return
+        Settings.windowMaximized = false
+        Settings.windowWidth = width
+        Settings.windowHeight = height
+        if (!wayland) {      // там x/y всегда 0 — не затираем положение, сохранённое под X11
+            Settings.windowX = x
+            Settings.windowY = y
+        }
+    }
+    Timer { id: geoSave; interval: 400; onTriggered: win._saveGeometry() }
+    onXChanged: if (_geoReady) geoSave.restart()
+    onYChanged: if (_geoReady) geoSave.restart()
+    onVisibilityChanged: if (_geoReady) geoSave.restart()
+
+    onClosing: close => {
+        _saveGeometry()
         if (trayWanted && trayReady) {
             close.accepted = false
             hide()
@@ -92,6 +211,13 @@ Window {
     Item {
         id: scene
         anchors.fill: parent
+        // в мини-плеере сцена не выгружается (страницы и прокрутка сохраняются), а только гаснет и не рисуется
+        visible: win.miniProgress < 1
+        enabled: !win.mini
+        // уходящая раскладка гаснет быстрее, чем проявляется новая
+        opacity: Math.max(0, 1 - win.miniProgress * 1.6)
+        scale: 1 - 0.04 * win.miniProgress
+        layer.enabled: win.miniProgress > 0 && win.miniProgress < 1
 
         Rectangle { anchors.fill: parent; color: Theme.surface }
 
@@ -117,11 +243,13 @@ Window {
             spacing: 8
 
             Sidebar {
+                id: sidebar
                 Layout.fillHeight: true
                 Layout.preferredWidth: implicitWidth
                 Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasized } }
                 router: router
                 compact: win.compactSidebar
+                drawer: win.layoutMode !== "full"
             }
 
             // Контент
@@ -139,6 +267,8 @@ Window {
                     anchors.right: parent.right
                     router: router
                     window: win
+                    showMenuButton: win.layoutMode !== "full"
+                    onMenuClicked: sidebar.openDrawer()
                     z: 2
                 }
 
@@ -172,6 +302,7 @@ Window {
                     anchors.bottomMargin: 16
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: Math.min(parent.width - 32, 1080)
+                    compact: win.layoutMode !== "full" || win.width < 860
                     z: 3
                     onOpenNowPlaying: center => nowPlaying.show(center)
                 }
@@ -198,7 +329,24 @@ Window {
         NowPlaying {
             id: nowPlaying
             anchors.fill: parent
+            compact: win.layoutMode !== "full"
             z: 100
+        }
+    }
+
+    Loader {
+        id: miniMode
+        anchors.fill: parent
+        // однажды созданный мини-плеер остаётся (без пересоздания при каждом сжатии), невидимый — не рисуется
+        active: win.mini || win._miniUsed
+        visible: win.miniProgress > 0
+        enabled: win.mini
+        opacity: Math.max(0, (win.miniProgress - 0.25) / 0.75)
+        scale: 0.96 + 0.04 * win.miniProgress
+        layer.enabled: win.miniProgress > 0 && win.miniProgress < 1
+        sourceComponent: MiniMode {
+            window: win
+            onExpandRequested: win.expandFromMini()
         }
     }
 
@@ -207,20 +355,28 @@ Window {
     ThemeWipe {
         id: themeWipe
         anchors.fill: parent
-        source: scene
+        source: win.mini && miniMode.item ? miniMode.item : scene
         mode: Settings.trackTransition
-        originItem: nowPlaying.open ? nowPlaying.coverItem : miniPlayer.coverItem
+        originItem: win.mini && miniMode.item ? miniMode.item.coverItem
+                  : nowPlaying.open ? nowPlaying.coverItem : miniPlayer.coverItem
         z: 1000
         Component.onCompleted: Theme.wipe = themeWipe
     }
     Binding { target: Theme; property: "wipeDirection"; value: Player.direction }
     // Окно не в фокусе (или свёрнуто) — декоративные анимации стоят
-    Binding { target: Theme; property: "calm"; value: Settings.calmWhenInactive && (!win.active || win.visibility === Window.Minimized) }
+    // закреплённый мини-плеер висит на виду поверх других окон — его анимации не замирают и без фокуса
+    Binding {
+        target: Theme; property: "calm"
+        value: Settings.calmWhenInactive && (win.visibility === Window.Minimized
+               || (!win.active && !(win.pinnedOnTop && win.layoutMode === "mini")))
+    }
 
     // Переходы к исполнителю / альбому / плейлисту — откуда угодно (строки треков, плееры)
     Connections {
         target: Catalog
         function onOpenRequested(name, props) {
+            if (win.mini)
+                win.expandFromMini()
             artistMenu.close()
             artistPreview.hide()
             if (nowPlaying.open)
@@ -245,6 +401,9 @@ Window {
 
     function trackMenuAction(id, track, item) {
         const seed = "track:" + track.trackId
+        // очередь и настройки живут в обычной раскладке
+        if (win.mini && (id === "queue" || id === "sound"))
+            win.expandFromMini()
         if (id === "pin") {
             if (Library.isWavePinned(seed))
                 Library.unpinWave(seed)
@@ -337,7 +496,7 @@ Window {
     Shortcut { sequence: "Shift+Left"; onActivated: Player.seekMs(Player.positionMs - 10000) }
     Shortcut {
         sequence: "Ctrl+P"
-        onActivated: nowPlaying.open ? nowPlaying.hide() : Player.hasTrack && nowPlaying.show(null)
+        onActivated: nowPlaying.open ? nowPlaying.hide() : !win.mini && Player.hasTrack && nowPlaying.show(null)
     }
     Shortcut {
         sequences: [StandardKey.Find]

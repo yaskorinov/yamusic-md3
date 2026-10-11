@@ -354,6 +354,8 @@ impl LibraryService {
                 me.apply_like(&back, !liked);
                 let action = if liked { "поставить" } else { "снять" };
                 me.set_error(&format!("Не удалось {action} лайк: {e}"));
+                // иначе сердце молча откатывается и непонятно, что лайк не сохранился
+                me.emit(LibraryEvent::Notice(format!("Не удалось {action} лайк: {}", short_reason(&e))));
             }
         });
         let kind = if liked { FeedbackKind::Like } else { FeedbackKind::Unlike };
@@ -373,6 +375,7 @@ impl LibraryService {
         self.rt.spawn(async move {
             if let Err(e) = client.users_dislikes_tracks_add(account.uid, &full_id).await {
                 me.set_error(&format!("Не удалось отметить «Не рекомендовать»: {e}"));
+                me.emit(LibraryEvent::Notice(format!("Не удалось отметить «Не рекомендовать»: {}", short_reason(&e))));
             }
         });
         self.emit(LibraryEvent::Feedback { kind: FeedbackKind::Dislike, track });
@@ -641,6 +644,14 @@ impl LibraryService {
             st.error = text.to_owned();
             let _ = events.send(LibraryEvent::ErrorChanged);
         }
+    }
+}
+
+/// Причина для короткого уведомления: сетевые ошибки reqwest длинные и с URL.
+fn short_reason(e: &ApiError) -> String {
+    match e {
+        ApiError::Network(_) => "сервер Яндекса не ответил".to_owned(),
+        other => other.to_string(),
     }
 }
 

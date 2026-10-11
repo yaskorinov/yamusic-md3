@@ -6,7 +6,8 @@ import YaMusic.Core
 // Синхронный текст играющего трека с заливкой по словам (порт виджета Word Lyrics для DMS).
 // Активная строка держится на высоте anchorPos; при смене строки текст едет каскадом:
 // строки ниже трогаются чуть позже. Неактивные строки приглушены и размыты, паузы — «• • •».
-// Клик по строке — перемотка к ней.
+// Клик по строке — перемотка к ней. Колесо, тачпад и перетаскивание прокручивают текст вручную:
+// слежение за строкой встаёт на паузу и возвращается через resumeMs или кнопкой «К текущей строке».
 Item {
     id: root
 
@@ -21,6 +22,7 @@ Item {
     property int scrollLeadMs: 250
     property color textColor: Theme.fgSurface
     property bool showSource: true
+    property int resumeMs: 3000
 
     readonly property var lines: Lyrics.lines
     // Трек уже сменился, а текст ещё от прошлого: гасим и не обрабатываем (иначе позиция 0 запускает
@@ -42,6 +44,8 @@ Item {
 
     onLinesChanged: {
         jumpTimer.restart()      // новый текст встаёт на место без анимации
+        following = true
+        manualAnim.running = false
         activeIndex = -1
         rebuild()
         tick()
@@ -258,6 +262,49 @@ Item {
                 delegate: LyricLine {}
             }
         }
+
+        WheelHandler {
+            target: null
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+            orientation: Qt.Vertical
+            onWheel: event => {
+                // тачпад узнаём по фазе жеста (см. SmoothScroll): пиксели 1:1, колесо — шагами с доводкой
+                if (event.phase !== Qt.NoScrollPhase) {
+                    root.userScroll(event.pixelDelta.y, false)
+                } else {
+                    const notches = event.angleDelta.y !== 0 ? event.angleDelta.y / 120 : event.pixelDelta.y / 15
+                    root.userScroll(notches * Settings.wheelStep, true)
+                }
+            }
+        }
+        DragHandler {
+            id: dragger
+            target: null
+            xAxis.enabled: false
+            property real _last: 0
+            onActiveChanged: _last = 0
+            onTranslationChanged: {
+                if (!active)
+                    return
+                root.userScroll(translation.y - _last, false)
+                _last = translation.y
+            }
+        }
+    }
+
+    Button {
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 20
+        z: 2
+        size: "xs"
+        style: "tonal"
+        icon: "lyrics"
+        text: "К текущей строке"
+        visible: opacity > 0
+        opacity: !root.following && root.lines.length > 0 && !root.stale ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsFast } }
+        onClicked: root.resumeFollowing()
     }
 
     Label {
@@ -276,7 +323,7 @@ Item {
         const want = viewport.height * fadeTopPct
         const idx = Math.max(0, activeIndex)
         const it = lineRep.count > idx ? lineRep.itemAt(idx) : null
-        if (!it)
+        if (!it || !following)
             return want
         return Math.max(0, Math.min(want, colTargetY + restY(idx) - lineGap * 0.25))
     }
@@ -310,6 +357,8 @@ Item {
     onColTargetYChanged: Qt.callLater(applyScroll)
 
     function applyScroll() {
+        if (!following)
+            return
         const dy = col.y - colTargetY
         col.y = colTargetY
         const lineChanged = activeIndex !== _scrollIndex
@@ -319,6 +368,67 @@ Item {
     }
 
     Timer { id: jumpTimer; interval: 250 }
+
+    // ── ручная прокрутка ────────────────────────────────────────────────────
+    // Пока пользователь листает, колонка стоит там, куда её увели (col.y), а активная строка
+    // только подсвечивается; возврат — тем же каскадом строк, что и обычная смена строки.
+    property bool following: true
+    property real _manualTarget: 0
+    readonly property real manualMaxY: viewport.height * anchorPos
+    readonly property real manualMinY: viewport.height * anchorPos - col.height
+
+    function _clampManual(y) { return Math.max(manualMinY, Math.min(manualMaxY, y)) }
+    function userScroll(dy, smooth) {
+        if (lines.length === 0)
+            return
+        if (following) {
+            following = false
+            _manualTarget = col.y
+        }
+        const base = smooth && manualAnim.running ? _manualTarget : col.y
+        _manualTarget = _clampManual(base + dy)
+        if (smooth) {
+            manualAnim.running = true
+        } else {
+            manualAnim.running = false
+            col.y = _manualTarget
+        }
+        resumeTimer.restart()
+    }
+    function resumeFollowing() {
+        resumeTimer.stop()
+        manualAnim.running = false
+        if (following)
+            return
+        following = true
+        const dy = col.y - colTargetY
+        col.y = colTargetY
+        _scrollIndex = activeIndex
+        if (Math.abs(dy) > 0.5)
+            shifted(dy)
+    }
+
+    Timer {
+        id: resumeTimer
+        interval: root.resumeMs
+        onTriggered: if (!dragger.active) root.resumeFollowing(); else restart()
+    }
+
+    // доводка колеса — как в SmoothScroll: экспонента, целые пиксели
+    FrameAnimation {
+        id: manualAnim
+        running: false
+        onTriggered: {
+            const d = root._manualTarget - col.y
+            if (Math.abs(d) < 0.5) {
+                col.y = root._manualTarget
+                running = false
+                return
+            }
+            const step = d * (1 - Math.exp(-frameTime * 14))
+            col.y = Math.round(col.y + (Math.abs(step) < 1 ? Math.sign(d) : step))
+        }
+    }
 
     // ── строка ──────────────────────────────────────────────────────────────
     component LyricLine: Item {
@@ -333,7 +443,7 @@ Item {
         readonly property bool filling: !isGap && (isActive || (index === root.activeIndex - 1 && root.pos < modelData.e))
         readonly property int dist: root.activeIndex < 0 ? index + 1 : Math.abs(index - root.activeIndex)
         readonly property real gapProgress: isGap && isActive ? Math.max(0, Math.min(1, (root.pos - modelData.t) / Math.max(0.1, modelData.e - modelData.t))) : 0
-        readonly property bool hovered: hover.containsMouse
+        readonly property bool hovered: hover.hovered
 
         width: col.width
         // Свёрнутая пауза сохраняет волосок высоты: Column не расставляет элементы нулевого размера
@@ -511,13 +621,18 @@ Item {
             }
         }
 
-        MouseArea {
+        // Обработчики, а не MouseArea: MouseArea забрала бы нажатие, и перетаскивание текста не началось бы
+        HoverHandler {
             id: hover
-            anchors.fill: parent
             enabled: !line.isGap
-            hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: root.seekTo(line.modelData.t)
+        }
+        TapHandler {
+            enabled: !line.isGap
+            onTapped: {
+                root.seekTo(line.modelData.t)
+                root.resumeFollowing()
+            }
         }
     }
 

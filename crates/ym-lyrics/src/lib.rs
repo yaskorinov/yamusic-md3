@@ -20,8 +20,9 @@ use sha1::{Digest, Sha1};
 use crate::lrc::{add_gaps, build_from_timed_lines, lines_from_lrc, parse_yrc};
 use crate::text::is_placeholder;
 
-/// 4 — Яндекс в конце цепочки; 5 — заглушки NetEase «текста нет» пропускаются
-pub const CACHE_VERSION: u32 = 5;
+/// 4 — Яндекс в конце цепочки; 5 — заглушки NetEase «текста нет» пропускаются;
+/// 6 — LRCLIB: нечёткое название и разметка, с которой согласно большинство записей
+pub const CACHE_VERSION: u32 = 6;
 /// «Не найдено» перепроверяется через 6 часов
 pub const NOT_FOUND_TTL_SECS: u64 = 6 * 3600;
 /// Таймаут HTTP источников, с (2 повтора на 5xx/сеть с паузой 0,7·(n+1) с)
@@ -156,7 +157,12 @@ pub type YandexLrc = Arc<dyn Fn() -> BoxFuture<'static, Result<Option<String>, S
 
 /// Имя файла кэша: sha1(f"{CACHE_VERSION}|{track_id}") hex + ".json"
 pub fn cache_file_name(track_id: &str) -> String {
-    let key = Sha1::digest(format!("{CACHE_VERSION}|{track_id}").as_bytes());
+    cache_file_name_v(CACHE_VERSION, track_id)
+}
+
+/// То же для явной версии (эталоны Python посчитаны для версии 5)
+pub fn cache_file_name_v(version: u32, track_id: &str) -> String {
+    let key = Sha1::digest(format!("{version}|{track_id}").as_bytes());
     format!("{}.json", hex::encode(key))
 }
 
@@ -381,7 +387,8 @@ mod tests {
     #[test]
     fn cache_key_matches_python() {
         // hashlib.sha1(b"5|12345").hexdigest()
-        assert_eq!(cache_file_name("12345"), "e13466f72878a42f8fe435c7ee2b441ee93e2d57.json");
+        assert_eq!(cache_file_name_v(5, "12345"), "e13466f72878a42f8fe435c7ee2b441ee93e2d57.json");
+        assert_ne!(cache_file_name("12345"), cache_file_name_v(5, "12345"));
     }
 
     #[tokio::test]

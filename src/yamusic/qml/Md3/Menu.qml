@@ -1,37 +1,62 @@
 import QtQuick
 import QtQuick.Shapes
+import QtQuick.Templates as T
 
-// Всплывающее меню MD3: карточка со списком пунктов у точки (x, y). Клик мимо, колесо или Esc — закрыть.
-// Кладётся поверх всего окна: Menu { anchors.fill: parent; z: … }; open(items, point).
+// Всплывающее меню MD3: карточка со списком пунктов у точки окна. Клик мимо или Esc — закрыть.
+// Карточки — отдельные всплывающие окна (Popup.Window): меню выходит за края окна приложения
+// (в мини-плеере 280×120 иначе не поместится) и прижимается к краям экрана.
+// Кладётся в окно: Menu { anchors.fill: parent }; open(items, point) — точка в координатах окна.
 // Пункт: { id, text, icon, enabled (true), checked (undefined — без галочки), separator: true, submenu: [пункты] }.
 // picked(index) — выбран пункт верхнего уровня (индекс в списке); triggered(id, item) — любой выбранный пункт.
 Item {
     id: root
 
     property var items: []
-    property bool opened: false
-    property point _at: Qt.point(0, 0)
-    property Item _subRow: null    // строка-родитель подменю (биндинг: раскладка могла ещё не пройти)
+    readonly property bool opened: mainPopup.visible
 
     signal picked(int index)
     signal triggered(string id, var item)
+
+    // поле под тень карточки внутри прозрачного окна
+    readonly property int _pad: 12
 
     function open(list, point) {
         closeSub()
         items = list
         main.currentIndex = -1
-        _at = point
-        opened = true
+        const g = root.mapToGlobal(point.x, point.y)
+        mainPopup.anchorX = g.x
+        mainPopup.anchorY = g.y
+        mainPopup.area = _screenArea()
+        mainPopup.open()
         main.forceActiveFocus()
     }
     function close() {
         closeSub()
-        opened = false
+        mainPopup.close()
     }
     function closeSub() {
         hoverTimer.stop()
         sub.parentIndex = -1
-        sub.shown = false
+        subPopup.close()
+    }
+
+    // Экран окна в глобальных координатах; панель задач снизу/справа срезается по доступной области
+    // рабочего стола (availableGeometry самого экрана в QML не видна)
+    function _screenArea() {
+        const w = root.Window.window
+        const s = w ? w.screen : null
+        if (!s || !(s.width > 0)) {
+            const o = root.mapToGlobal(0, 0)
+            return Qt.rect(o.x, o.y, root.width, root.height)
+        }
+        let right = s.virtualX + s.width
+        let bottom = s.virtualY + s.height
+        if (s.desktopAvailableWidth > s.virtualX)
+            right = Math.min(right, s.desktopAvailableWidth)
+        if (s.desktopAvailableHeight > s.virtualY)
+            bottom = Math.min(bottom, s.desktopAvailableHeight)
+        return Qt.rect(s.virtualX, s.virtualY, right - s.virtualX, bottom - s.virtualY)
     }
 
     function _usable(item) {
@@ -43,13 +68,19 @@ Item {
         const item = items[index]
         if (!_usable(item) || !item.submenu || item.submenu.length === 0)
             return
-        if (sub.parentIndex !== index) {
+        if (sub.parentIndex !== index || !subPopup.opened) {
             sub.model = item.submenu
             sub.parentIndex = index
             sub.currentIndex = -1
-            _subRow = main.rowAt(index)
+            const row = main.rowAt(index)
+            const tl = row ? row.mapToGlobal(0, 0) : main.mapToGlobal(0, 0)
+            const cardTl = main.mapToGlobal(0, 0)
+            subPopup.rowY = tl.y
+            subPopup.cardLeft = cardTl.x
+            subPopup.cardRight = cardTl.x + main.width
+            subPopup.area = mainPopup.area
+            subPopup.open()
         }
-        sub.shown = true
         if (focusFirst) {
             sub.currentIndex = sub.step(-1, 1)
             sub.forceActiveFocus()
@@ -70,13 +101,13 @@ Item {
         triggered(item.id ?? "", item)
     }
 
-    visible: opened
-
-    MouseArea {
-        anchors.fill: parent
-        acceptedButtons: Qt.AllButtons
-        onPressed: root.close()
-        onWheel: wheel => root.close()
+    // Окно приложения ушло в фон — меню закрывается (как у системных меню)
+    Connections {
+        target: Qt.application
+        function onStateChanged() {
+            if (Qt.application.state !== Qt.ApplicationActive)
+                root.close()
+        }
     }
 
     // Задержка открытия/закрытия подменю по наведению: диагональный путь мыши к подменю его не схлопывает
@@ -93,12 +124,44 @@ Item {
         }
     }
 
+    // Всплывающее окно под одну карточку: прозрачное, с полем под тень; позиция — в глобальных координатах
+    component CardPopup: T.Popup {
+        id: pop
+        property rect area: Qt.rect(0, 0, 0, 0)
+        property Item card: null
+
+        popupType: T.Popup.Window
+        modal: false
+        dim: false
+        focus: true
+        padding: root._pad
+        background: null
+        // x/y попапа — относительно root; считаем в глобальных и переводим
+        function toLocal(gx, gy) { return root.mapFromGlobal(gx, gy) }
+
+        // размер окна — по карточке (неявный размер контейнера до Popup.Window не доходит)
+        contentWidth: card ? card.implicitWidth : 0
+        contentHeight: card ? card.implicitHeight : 0
+        // в Templates (без стиля) размер попапа к содержимому не привязан
+        implicitWidth: contentWidth + leftPadding + rightPadding
+        implicitHeight: contentHeight + topPadding + bottomPadding
+
+        enter: Transition {
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motion.effectsFast }
+                NumberAnimation { property: "scale"; from: 0.9; to: 1; duration: Theme.motion.spatialFast; easing.type: Easing.OutBack }
+            }
+        }
+        exit: Transition {
+            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.motion.effectsFast }
+        }
+    }
+
     component MenuCard: Rectangle {
         id: card
 
         property var model: []
         property int level: 0
-        property bool shown: false
         property int currentIndex: -1
         property int parentIndex: -1   // для подменю: пункт-родитель
         readonly property bool hasIcons: (model || []).some(it => (it.icon ?? "") !== "")
@@ -122,15 +185,9 @@ Item {
         width: implicitWidth
         height: implicitHeight
         radius: Theme.shape.large
-        color: Qt.alpha(Theme.surfaceContainer, 0.92)
+        color: Qt.alpha(Theme.surfaceContainer, 0.96)
         border.width: 1
         border.color: Qt.alpha(Theme.outlineVariant, 0.5)
-        transformOrigin: Item.TopLeft
-        visible: opacity > 0
-        scale: shown ? 1 : 0.9
-        opacity: shown ? 1 : 0
-        Behavior on scale { NumberAnimation { duration: Theme.motion.spatialFast; easing.type: Easing.OutBack } }
-        Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsFast } }
 
         Keys.onPressed: event => {
             switch (event.key) {
@@ -172,9 +229,6 @@ Item {
 
         Elevation { target: card; level: 2 }
 
-        // Клики по самой карточке не должны закрывать меню через подложку
-        MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; onWheel: wheel => wheel.accepted = true }
-
         Column {
             id: list
             x: 8
@@ -214,7 +268,7 @@ Item {
                         height: parent.height
                         radius: Theme.shape.medium
                         color: Theme.fgSurface
-                        opacity: (row.current && !hit.containsMouse) || (row.hasSub && sub.shown && sub.parentIndex === row.index)
+                        opacity: (row.current && !hit.containsMouse) || (row.hasSub && subPopup.opened && sub.parentIndex === row.index)
                                  ? Theme.stateLayer.focus : 0
                         Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsFast } }
                     }
@@ -296,24 +350,53 @@ Item {
         }
     }
 
-    // Позиции — биндингами: размер карточки известен только после раскладки пунктов
-    MenuCard {
-        id: main
-        level: 0
-        model: root.items
-        shown: root.opened
-        x: Math.max(8, Math.min(root._at.x, root.width - width - 8))
-        y: root._at.y + height + 8 > root.height ? Math.max(8, root._at.y - height) : root._at.y
+    // Позиции — биндингами: размер карточки известен только после раскладки пунктов.
+    // Точка — левый верхний угол карточки; не влезает вниз — карточка над точкой; прижатие к экрану.
+    CardPopup {
+        id: mainPopup
+        property real anchorX: 0
+        property real anchorY: 0
+        readonly property real gx: Math.max(area.x + 8 - root._pad,
+                                            Math.min(anchorX - root._pad, area.x + area.width - main.width - 8 - root._pad))
+        readonly property real gy: anchorY + main.height + 8 > area.y + area.height
+                                   ? Math.max(area.y + 8, anchorY - main.height) - root._pad
+                                   : anchorY - root._pad
+        x: toLocal(gx, gy).x
+        y: toLocal(gx, gy).y
+        closePolicy: T.Popup.CloseOnEscape | T.Popup.CloseOnPressOutside
+        transformOrigin: Item.TopLeft
+        onClosed: root.closeSub()
+        card: main
+
+        MenuCard {
+            id: main
+            level: 0
+            model: root.items
+        }
     }
 
-    MenuCard {
-        id: sub
-        level: 1
-        x: {
-            const right = main.x + main.width - 4
-            return right + width > root.width - 8 ? Math.max(8, main.x - width + 4) : right
+    // Подменю — справа от карточки, не влезает — слева; по вертикали — у строки-родителя
+    CardPopup {
+        id: subPopup
+        property real rowY: 0
+        property real cardLeft: 0
+        property real cardRight: 0
+        readonly property real gx: cardRight - 4 + sub.width > area.x + area.width - 8
+                                   ? Math.max(area.x + 8, cardLeft - sub.width + 4) - root._pad
+                                   : cardRight - 4 - root._pad
+        readonly property real gy: Math.max(area.y + 8, Math.min(rowY - 8, area.y + area.height - sub.height - 8)) - root._pad
+        parent: main
+        x: main.mapFromGlobal(gx, gy).x
+        y: main.mapFromGlobal(gx, gy).y
+        // клик мимо закрывает главное меню целиком, Esc и «←» обрабатывает карточка
+        closePolicy: T.Popup.NoAutoClose
+        transformOrigin: Item.TopLeft
+        card: sub
+
+        MenuCard {
+            id: sub
+            level: 1
+            HoverHandler { onHoveredChanged: if (hovered) hoverTimer.stop() }
         }
-        y: Math.max(8, Math.min(main.y + (root._subRow ? root._subRow.y : 0), root.height - height - 8))
-        HoverHandler { onHoveredChanged: if (hovered) hoverTimer.stop() }
     }
 }

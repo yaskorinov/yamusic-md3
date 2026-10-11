@@ -5,7 +5,7 @@ use serde_json::Value;
 use ym_lyrics::lrc::{add_gaps, build_from_timed_lines, lines_from_lrc, parse_yrc, round3};
 use ym_lyrics::sources::{NE_LYRIC_PATH, ne_eapi_params, ne_eapi_params_text, ne_lyric_json};
 use ym_lyrics::text::{clean_title, is_placeholder, norm, primary_artist, similar};
-use ym_lyrics::{Line, cache_file_name};
+use ym_lyrics::{Line, cache_file_name_v};
 
 fn fixtures() -> Value {
     serde_json::from_str(include_str!("fixtures.json")).unwrap()
@@ -112,6 +112,6 @@ fn ne_eapi_params_matches_python() {
 fn cache_key_matches_python() {
     let f = fixtures();
     for c in cases(&f, "cache_key") {
-        assert_eq!(cache_file_name(c[0].as_str().unwrap()), format!("{}.json", c[1].as_str().unwrap()));
+        assert_eq!(cache_file_name_v(5, c[0].as_str().unwrap()), format!("{}.json", c[1].as_str().unwrap()));
     }
 }

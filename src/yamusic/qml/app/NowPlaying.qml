@@ -14,6 +14,32 @@ Item {
     property bool open: false
     property point origin: Qt.point(width / 2, height - 60)
     property string tab: "lyrics"          // lyrics | queue
+    // узкое окно: одна колонка; текст/очередь открываются вместо плеера (sheetOpen) переключателем сверху
+    property bool compact: false
+    property bool sheetOpen: false
+    // Раскладка (одна колонка / две) меняется не мгновенно, а «сквозным затуханием» MD3:
+    // старая гаснет, раскладка переключается, новая проявляется с лёгким увеличением
+    property bool layoutCompact: false
+    Component.onCompleted: layoutCompact = compact
+    onCompactChanged: {
+        if (open && visible) {
+            fadeThrough.restart()
+        } else {
+            fadeThrough.stop()
+            layoutCompact = compact
+            body.opacity = 1
+            body.scale = 1
+        }
+    }
+    SequentialAnimation {
+        id: fadeThrough
+        NumberAnimation { target: body; property: "opacity"; to: 0; duration: Theme.motion.effectsFast; easing.type: Easing.InCubic }
+        ScriptAction { script: root.layoutCompact = root.compact }
+        ParallelAnimation {
+            NumberAnimation { target: body; property: "opacity"; to: 1; duration: Theme.motion.effectsDefault; easing.type: Easing.OutCubic }
+            NumberAnimation { target: body; property: "scale"; from: 0.94; to: 1; duration: Theme.motion.spatialDefault; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.motion.emphasizedDecelerate }
+        }
+    }
     property real reveal: open ? 1 : 0
     readonly property bool animating: revealAnim.running
     readonly property Item coverItem: bigCover
@@ -33,6 +59,7 @@ Item {
         if (!open)
             blob.jumpTo(_windowShapes[Math.floor(Math.random() * _windowShapes.length)])
         open = true
+        sheetOpen = false
         forceActiveFocus()
     }
     function hide() {
@@ -41,7 +68,7 @@ Item {
 
     visible: reveal > 0
     focus: open
-    Keys.onEscapePressed: hide()
+    Keys.onEscapePressed: compact && sheetOpen ? sheetOpen = false : hide()
 
     Behavior on reveal {
         NumberAnimation {
@@ -131,28 +158,42 @@ Item {
             ButtonGroup {
                 model: [{ icon: "title" }, { icon: "queue_music" }]
                 autoSelect: false
-                currentIndex: root.tab === "lyrics" ? 0 : 1
-                onActivated: i => root.tab = i === 0 ? "lyrics" : "queue"
+                currentIndex: root.layoutCompact && !root.sheetOpen ? -1 : root.tab === "lyrics" ? 0 : 1
+                onActivated: i => {
+                    const next = i === 0 ? "lyrics" : "queue"
+                    if (root.layoutCompact && root.sheetOpen && root.tab === next) {
+                        root.sheetOpen = false
+                    } else {
+                        root.tab = next
+                        root.sheetOpen = true
+                    }
+                }
             }
         }
 
         RowLayout {
+            id: body
             anchors.top: topRow.bottom
             anchors.bottom: parent.bottom
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.margins: 32
+            anchors.margins: root.layoutCompact ? 16 : 32
             anchors.topMargin: 8
             spacing: 48
 
             // ---- Колонка плеера (слева, с отступом от края): обложка и управление ----
             ColumnLayout {
                 id: left
+                visible: !root.layoutCompact || !root.sheetOpen
                 Layout.fillHeight: true
-                Layout.leftMargin: Math.max(16, root.width * 0.06)
-                Layout.preferredWidth: Math.min(460, root.width * 0.42)
-                Layout.maximumWidth: Layout.preferredWidth
+                Layout.fillWidth: root.layoutCompact
+                Layout.leftMargin: root.layoutCompact ? 0 : Math.max(16, root.width * 0.06)
+                Layout.preferredWidth: root.layoutCompact ? -1 : Math.min(460, root.width * 0.42)
+                Layout.maximumWidth: root.layoutCompact ? Number.POSITIVE_INFINITY : Layout.preferredWidth
                 spacing: 12
+                // ширина колонки из размеров окна, а не из уже разложенной колонки: иначе обложка и подписи
+                // меняют ширину, от которой сами зависят (recursive rearrange)
+                readonly property real colWidth: root.layoutCompact ? body.width : Math.min(460, root.width * 0.42)
 
                 Item { Layout.fillHeight: true }
 
@@ -160,7 +201,9 @@ Item {
                 Binding {
                     target: Player
                     property: "levelsWanted"
-                    value: root.visible && root.open && Settings.coverPulse && Player.playing && !Theme.calm
+                    // уровни нужны и мини-плееру (MiniMode): там обложка и фон тоже дышат в такт
+                    value: ((root.visible && root.open) || (root.Window.window && root.Window.window.layoutMode === "mini"))
+                           && Settings.coverPulse && Player.playing && !Theme.calm
                 }
                 property real avgLevel: 0
                 property real beat: 0
@@ -175,12 +218,13 @@ Item {
 
                 NowPlayingCover {
                     id: bigCover
-                    // Всё остальное в колонке занимает ~360 px — обложка берёт оставшееся
-                    readonly property real s: Math.max(160, Math.min(left.width, left.height - 360, 440))
+                    // Всё остальное в колонке занимает ~360 px (в узком окне ~310) — обложка берёт оставшееся
+                    readonly property real s: root.layoutCompact ? Math.max(96, Math.min(left.colWidth, body.height - 316, 360))
+                                                           : Math.max(160, Math.min(left.colWidth, body.height - 360, 440))
                     Layout.alignment: Qt.AlignHCenter
                     Layout.preferredWidth: s
                     Layout.preferredHeight: s
-                    Layout.bottomMargin: 20
+                    Layout.bottomMargin: root.layoutCompact ? 12 : 20
                     source: Player.cover.replace("400x400", "800x800")
                     restShape: Player.playing ? "cookie12" : "square"
                     direction: Player.direction
@@ -223,14 +267,14 @@ Item {
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignHCenter
                     text: Player.title
-                    type: "headlineMedium"
+                    type: root.layoutCompact ? "headlineSmall" : "headlineMedium"
                     weight: 700
                     opacity: left.infoIn
                     transform: Translate { y: (1 - left.infoIn) * 14 }
                 }
                 LinkLabel {
                     Layout.alignment: Qt.AlignHCenter
-                    Layout.maximumWidth: left.width
+                    Layout.maximumWidth: left.colWidth
                     Layout.topMargin: -6
                     horizontalAlignment: Text.AlignHCenter
                     previewArtistId: (Player.track.artistRefs ?? []).length === 1 ? Player.track.artistRefs[0].id : ""
@@ -243,7 +287,7 @@ Item {
                 }
                 LinkLabel {
                     Layout.alignment: Qt.AlignHCenter
-                    Layout.maximumWidth: left.width
+                    Layout.maximumWidth: left.colWidth
                     Layout.topMargin: -6
                     horizontalAlignment: Text.AlignHCenter
                     onClicked: Catalog.openAlbum(Player.track.albumId ?? "")
@@ -301,7 +345,7 @@ Item {
                     }
                     IconButton { icon: "skip_previous"; size: "m"; iconColor: Theme.fgSurface; onClicked: Player.previous() }
                     PlayButton {
-                        size: 96
+                        size: root.layoutCompact ? 72 : 96
                         playing: Player.playing
                         containerColor: Theme.primaryContainer
                         iconColor: Theme.fgPrimaryContainer
@@ -332,7 +376,7 @@ Item {
                         size: 22
                     }
                     Slider {
-                        Layout.preferredWidth: 220
+                        Layout.preferredWidth: root.layoutCompact ? Math.min(220, left.colWidth - 260) : 220
                         value: Player.volume
                         trackHeight: 14
                         handleHeight: 36
@@ -359,6 +403,7 @@ Item {
             // Смена вкладки — shared axis X (порядок как у переключателя: текст слева, очередь справа):
             // уходящая уезжает в свою сторону и гаснет, новая выезжает с другой.
             Item {
+                visible: !root.layoutCompact || root.sheetOpen
                 Layout.fillWidth: true
                 Layout.fillHeight: true
 
