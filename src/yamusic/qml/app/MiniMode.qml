@@ -326,4 +326,48 @@ Item {
             onCommitted: v => Player.seek(v)
         }
     }
+
+    // Колесо над мини-плеером — громкость: щелчок колеса ±5 %, тачпад — плавно; плашка с процентами
+    WheelHandler {
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+        onWheel: event => {
+            const touchpad = event.pixelDelta.y !== 0 && event.angleDelta.y % 120 !== 0
+            const d = touchpad ? event.pixelDelta.y / 600 : event.angleDelta.y / 120 * 0.05
+            Player.volume = Math.max(0, Math.min(1, Player.volume + d))
+            volumeHint.opacity = 1
+            volumeHintHide.restart()
+        }
+    }
+    Timer { id: volumeHintHide; interval: 1000; onTriggered: volumeHint.opacity = 0 }
+    Rectangle {
+        id: volumeHint
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: 10
+        z: 11
+        width: volumeRow.implicitWidth + 24
+        height: 32
+        radius: 16
+        color: Qt.alpha(Theme.surfaceContainerHigh, 0.92)
+        opacity: 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: Theme.motion.effectsFast } }
+        Row {
+            id: volumeRow
+            anchors.centerIn: parent
+            spacing: 6
+            Icon {
+                anchors.verticalCenter: parent.verticalCenter
+                name: Player.volume > 0.5 ? "volume_up" : Player.volume > 0 ? "volume_down" : "volume_off"
+                size: 18
+                color: Theme.fgSurface
+            }
+            Label {
+                anchors.verticalCenter: parent.verticalCenter
+                text: Math.round(Player.volume * 100) + " %"
+                type: "labelLarge"
+                color: Theme.fgSurface
+            }
+        }
+    }
 }

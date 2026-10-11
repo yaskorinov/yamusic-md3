@@ -307,7 +307,12 @@ Window {
     }
     Binding { target: Theme; property: "wipeDirection"; value: Player.direction }
     // Окно не в фокусе (или свёрнуто) — декоративные анимации стоят
-    Binding { target: Theme; property: "calm"; value: Settings.calmWhenInactive && (!win.active || win.visibility === Window.Minimized) }
+    // закреплённый мини-плеер висит на виду поверх других окон — его анимации не замирают и без фокуса
+    Binding {
+        target: Theme; property: "calm"
+        value: Settings.calmWhenInactive && (win.visibility === Window.Minimized
+               || (!win.active && !(win.pinnedOnTop && win.layoutMode === "mini")))
+    }
 
     // Переходы к исполнителю / альбому / плейлисту — откуда угодно (строки треков, плееры)
     Connections {
