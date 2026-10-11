@@ -12,12 +12,13 @@ Window {
 
     property string startPage: "wave"     // --set startPage=settings (для разработки)
 
-    width: Settings.windowWidth
-    height: Settings.windowHeight
+    // размер и положение — последние сохранённые (см. _restoreGeometry); окно показывается уже на месте
+    width: 1280
+    height: 800
     // Меньше обычной раскладки окно уходит в «компактную» (сайдбар — шторкой), ещё меньше — в мини-плеер
     minimumWidth: 280
     minimumHeight: 120
-    visible: true
+    visible: false
     title: Player.hasTrack ? Player.title + " — " + Player.artist + " · YaMusic" : "YaMusic"
     // «Поверх всех окон» (кнопка мини-плеера, меню трека); не запоминается между запусками
     property bool pinnedOnTop: false
@@ -47,9 +48,10 @@ Window {
         } else
             modeSettle.restart()
     }
-    Component.onCompleted: layoutMode = _modeFor(width, height, "")   // разорвать привязку: дальше — только _reevaluateMode
-    onWidthChanged: _reevaluateMode()
-    onHeightChanged: _reevaluateMode()
+    // размер и положение — из настроек; заодно разрывает привязку layoutMode (дальше — только _reevaluateMode)
+    Component.onCompleted: _restoreGeometry()
+    onWidthChanged: { _reevaluateMode(); if (_geoReady) geoSave.restart() }
+    onHeightChanged: { _reevaluateMode(); if (_geoReady) geoSave.restart() }
     Timer {
         id: modeSettle
         interval: 150
@@ -99,12 +101,60 @@ Window {
         requestActivate()
     }
 
-    onClosing: close => {
-        // размер мини-плеера не запоминаем: следующий запуск — в обычной раскладке
-        if (visibility === Window.Windowed && !mini) {
-            Settings.windowWidth = width
-            Settings.windowHeight = height
+    // ---- Размер и положение окна между запусками ----
+    property bool _geoReady: false
+    function _onSomeScreen(px, py, w) {
+        // хотя бы верх окна (полоса, за которую его можно перетащить) — на одном из мониторов
+        for (const s of Qt.application.screens) {
+            if (px + w / 2 >= s.virtualX && px + w / 2 < s.virtualX + s.width && py >= s.virtualY && py + 24 < s.virtualY + s.height)
+                return true
         }
+        return false
+    }
+    function _restoreGeometry() {
+        // --size (снимки, отладка) важнее сохранённого
+        const cliSize = Qt.application.arguments.some(a => a === "--size" || a.startsWith("--size="))
+        if (!cliSize) {
+            width = Math.max(minimumWidth, Settings.windowWidth)
+            height = Math.max(minimumHeight, Settings.windowHeight)
+        }
+        if (!cliSize && Settings.windowX > -1000000 && _onSomeScreen(Settings.windowX, Settings.windowY, width)) {
+            x = Settings.windowX
+            y = Settings.windowY
+        } else {
+            x = screen.virtualX + Math.max(0, (screen.width - width) / 2)
+            y = screen.virtualY + Math.max(0, (screen.height - height) / 2)
+        }
+        layoutMode = _modeFor(width, height, "")
+        if (!cliSize && Settings.windowMaximized)
+            showMaximized()
+        else
+            show()
+        _geoReady = true
+    }
+    function _saveGeometry() {
+        if (!_geoReady)
+            return
+        if (visibility === Window.Maximized) {
+            Settings.windowMaximized = true
+            return
+        }
+        // свёрнутое, на весь экран или спрятанное в трей — последнее обычное положение не трогаем
+        if (visibility !== Window.Windowed)
+            return
+        Settings.windowMaximized = false
+        Settings.windowWidth = width
+        Settings.windowHeight = height
+        Settings.windowX = x
+        Settings.windowY = y
+    }
+    Timer { id: geoSave; interval: 400; onTriggered: win._saveGeometry() }
+    onXChanged: if (_geoReady) geoSave.restart()
+    onYChanged: if (_geoReady) geoSave.restart()
+    onVisibilityChanged: if (_geoReady) geoSave.restart()
+
+    onClosing: close => {
+        _saveGeometry()
         if (trayWanted && trayReady) {
             close.accepted = false
             hide()

@@ -18,7 +18,10 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::broadcast;
 
-/// Все ключи. Порядок и имена — как SCHEMA в settings.py.
+/// windowX/windowY: положение ещё не сохранялось
+pub const WINDOW_POS_UNSET: i64 = -1_000_000;
+
+/// Все ключи. Порядок и имена — как SCHEMA в settings.py (+ положение окна).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SettingKey {
     // Внешний вид
@@ -41,6 +44,10 @@ pub enum SettingKey {
     SidebarCollapsed,
     WindowWidth,
     WindowHeight,
+    /// положение окна; WINDOW_POS_UNSET — не сохранено (окно по центру)
+    WindowX,
+    WindowY,
+    WindowMaximized,
     // Воспроизведение
     Quality,
     Volume,
@@ -68,7 +75,7 @@ pub enum SettingType {
 }
 
 impl SettingKey {
-    pub const ALL: [SettingKey; 24] = [
+    pub const ALL: [SettingKey; 27] = [
         SettingKey::ThemeMode,
         SettingKey::SchemeVariant,
         SettingKey::AccentFromCover,
@@ -87,6 +94,9 @@ impl SettingKey {
         SettingKey::SidebarCollapsed,
         SettingKey::WindowWidth,
         SettingKey::WindowHeight,
+        SettingKey::WindowX,
+        SettingKey::WindowY,
+        SettingKey::WindowMaximized,
         SettingKey::Quality,
         SettingKey::Volume,
         SettingKey::Crossfade,
@@ -117,6 +127,9 @@ impl SettingKey {
             SidebarCollapsed => "sidebarCollapsed",
             WindowWidth => "windowWidth",
             WindowHeight => "windowHeight",
+            WindowX => "windowX",
+            WindowY => "windowY",
+            WindowMaximized => "windowMaximized",
             Quality => "quality",
             Volume => "volume",
             Crossfade => "crossfade",
@@ -162,6 +175,8 @@ impl SettingKey {
             SidebarCollapsed => Bool(false),
             WindowWidth => Int(1280),
             WindowHeight => Int(800),
+            WindowX | WindowY => Int(WINDOW_POS_UNSET),
+            WindowMaximized => Bool(false),
             Quality => Str("lossless".into()),
             Volume => Float(0.7),
             Crossfade => Int(4),
@@ -732,7 +747,7 @@ mod tests {
 
     #[test]
     fn schema() {
-        assert_eq!(SettingKey::ALL.len(), 24);
+        assert_eq!(SettingKey::ALL.len(), 27);
         for key in SettingKey::ALL {
             assert_eq!(SettingKey::from_name(key.name()), Some(key));
             assert_eq!(key.default_value().value_type(), key.value_type());
